@@ -25,7 +25,7 @@ enum Snapshot {
 
     /// The menu-bar dots for the given states, on a menu-bar-like strip, light and dark.
     static func renderDots(_ states: [SessionState], to path: String) {
-        let dots = AppDelegate.dotsImage(states)
+        let dots = AppDelegate.dotsImage(states, withEye: true)
         let pad: CGFloat = 10
         let size = NSSize(width: dots.size.width + pad * 2, height: 24 * 2 + 4)
         let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),

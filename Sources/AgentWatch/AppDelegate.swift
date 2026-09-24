@@ -51,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// One colored dot per live session, in panel order; the eye when there are none.
+    /// The eye, always, followed by one colored dot per live session in panel order.
     private func updateStatusItem() {
         guard let button = statusItem.button else { return }
         let states = model.menuBarStates
@@ -60,10 +60,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.title = ""
         if states.isEmpty {
             let eye = NSImage(systemSymbolName: "eye", accessibilityDescription: "AgentWatch")
-            eye?.isTemplate = true
+            eye?.isTemplate = true // plain template: the system tints it exactly like other menu bar icons
             button.image = eye
         } else {
-            button.image = Self.dotsImage(states)
+            button.image = Self.dotsImage(states, withEye: true)
         }
         let c = model.counts
         button.toolTip = "AgentWatch: \(c.attention) need input · \(c.running) running · \(c.idle) idle"
@@ -71,19 +71,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     static let maxDots = 10
 
-    static func dotsImage(_ states: [SessionState]) -> NSImage {
+    static func dotsImage(_ states: [SessionState], withEye: Bool = false) -> NSImage {
         let shown = Array(states.prefix(maxDots))
         let overflow = states.count - shown.count
         let d: CGFloat = 8, gap: CGFloat = 3, height: CGFloat = 18
+        let eye = withEye ? NSImage(systemSymbolName: "eye", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular)) : nil
+        let lead = eye.map { $0.size.width + 6 } ?? 0
         let more = overflow > 0 ? NSAttributedString(string: "+\(overflow)", attributes: [
             .font: NSFont.systemFont(ofSize: 10, weight: .semibold), .foregroundColor: NSColor.labelColor,
         ]) : nil
         let dotsWidth = CGFloat(shown.count) * d + CGFloat(max(0, shown.count - 1)) * gap
-        let width = dotsWidth + (more.map { $0.size().width + gap + 1 } ?? 0)
-        // Drawn lazily, so dynamic colors (idle gray, "+N") resolve against the menu bar's appearance.
+        let width = lead + dotsWidth + (more.map { $0.size().width + gap + 1 } ?? 0)
+        // Drawn lazily, so dynamic colors (eye, idle gray, "+N") resolve against the menu bar's appearance.
         let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
+            if let eye {
+                // The image has colored dots, so it can't be a template; tint the eye by hand instead.
+                let r = NSRect(x: 0, y: (height - eye.size.height) / 2, width: eye.size.width, height: eye.size.height)
+                eye.draw(in: r)
+                NSColor.labelColor.set()
+                r.fill(using: .sourceAtop)
+            }
             for (i, state) in shown.enumerated() {
-                let rect = NSRect(x: CGFloat(i) * (d + gap), y: (height - d) / 2, width: d, height: d)
+                let rect = NSRect(x: lead + CGFloat(i) * (d + gap), y: (height - d) / 2, width: d, height: d)
                 state.nsColor.setFill()
                 NSBezierPath(ovalIn: rect).fill()
                 if state == .needsInput { // a ring makes "needs you" readable even for colorblind eyes
@@ -94,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             if let more {
-                more.draw(at: NSPoint(x: dotsWidth + gap + 1, y: (height - more.size().height) / 2))
+                more.draw(at: NSPoint(x: lead + dotsWidth + gap + 1, y: (height - more.size().height) / 2))
             }
             return true
         }
