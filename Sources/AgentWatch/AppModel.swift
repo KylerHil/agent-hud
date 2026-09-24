@@ -39,7 +39,8 @@ final class AppModel {
     }
 
     func ingest(_ events: [AgentEvent], replay: Bool) {
-        for e in events {
+        // Hooks run async, so two near-simultaneous events can land out of order; their timestamps don't.
+        for e in events.sorted(by: { $0.ts < $1.ts }) {
             guard let tr = store.apply(e) else { continue }
             // Replayed history and events that are old news should update state silently.
             if !replay, Date().timeIntervalSince(e.date) < 60, let s = store.sessions[tr.sessionID] {

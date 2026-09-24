@@ -9,7 +9,13 @@ public enum Paths {
         return userHome.appendingPathComponent(".agentwatch", isDirectory: true)
     }
 
-    public static var userHome: URL { FileManager.default.homeDirectoryForCurrentUser }
+    /// `AGENTWATCH_USER_HOME` lets tests point the installer at a scratch home.
+    public static var userHome: URL {
+        if let h = ProcessInfo.processInfo.environment["AGENTWATCH_USER_HOME"], !h.isEmpty {
+            return URL(fileURLWithPath: h, isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+    }
     public static var eventsFile: URL { home.appendingPathComponent("events.jsonl") }
     public static var rotatedEventsFile: URL { home.appendingPathComponent("events.1.jsonl") }
     public static var binDir: URL { home.appendingPathComponent("bin", isDirectory: true) }
@@ -18,7 +24,8 @@ public enum Paths {
 
     public static var claudeSettings: URL { userHome.appendingPathComponent(".claude/settings.json") }
     public static var codexHome: URL {
-        if let h = ProcessInfo.processInfo.environment["CODEX_HOME"], !h.isEmpty {
+        if ProcessInfo.processInfo.environment["AGENTWATCH_USER_HOME"] == nil,
+           let h = ProcessInfo.processInfo.environment["CODEX_HOME"], !h.isEmpty {
             return URL(fileURLWithPath: h, isDirectory: true)
         }
         return userHome.appendingPathComponent(".codex", isDirectory: true)

@@ -5,7 +5,7 @@ REPORTER_DEST := $(HOME)/.agentwatch/bin/agentwatch-report
 APP := build/AgentWatch.app
 APP_DEST := $(HOME)/Applications/AgentWatch.app
 
-.PHONY: help build test fake fake-loop fake-clear app run install install-reporter clean
+.PHONY: help build test fake fake-loop fake-clear hooks-diff install-hooks uninstall-hooks hooks-status app run install install-reporter clean
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -49,6 +49,18 @@ install-reporter: build ## Copy the reporter to ~/.agentwatch/bin
 	@mkdir -p $(dir $(REPORTER_DEST))
 	install -m 0755 $(BUILD_DIR)/agentwatch-report $(REPORTER_DEST)
 	@echo "installed $(REPORTER_DEST)"
+
+hooks-diff: build ## Show the exact config changes install-hooks would make
+	$(BUILD_DIR)/agentwatch-report install-hooks --dry-run
+
+install-hooks: install-reporter ## Back up configs, show the diff, confirm, merge hooks in
+	$(REPORTER_DEST) install-hooks
+
+uninstall-hooks: build ## Back up configs, show the diff, confirm, remove AgentWatch hooks
+	$(BUILD_DIR)/agentwatch-report uninstall-hooks
+
+hooks-status: build ## Show whether hooks are installed
+	$(BUILD_DIR)/agentwatch-report hooks-status
 
 clean: ## Remove build outputs
 	rm -rf .build build
