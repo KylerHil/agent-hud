@@ -104,7 +104,9 @@ AgentWatch's hooks were in it.
   Right-click for Open Folder, Copy Session ID, Dismiss.
 - **⌃** collapses to a pill (`● 2 ● 3 ● 1`); click the pill to expand. It pulses orange while
   anything needs input.
-- **Menu bar:** attention count, waiting sessions (click to jump), show/hide, settings, quit.
+- **Menu bar:** one colored dot per live session in panel order (🟠 needs input, 🟢 running,
+  🟡 stale, ⚪ idle, 🟣 seen without hooks; `+N` past 10), so you can hide the panel and still see
+  everything. The menu lists every session with its state; click one to jump to it.
 - **Settings:** opacity (the panel goes fully opaque on hover), pulse, idle sessions, stale and
   ended timings, notifications (needs input, finished, sound, re-remind interval), launch at login.
 

@@ -2,6 +2,17 @@ import AgentWatchCore
 import SwiftUI
 
 extension SessionState {
+    var nsColor: NSColor {
+        switch self {
+        case .needsInput: .systemOrange
+        case .running: .systemGreen
+        case .stale: .systemYellow
+        case .idle: .tertiaryLabelColor
+        case .unknown: .systemPurple.withAlphaComponent(0.7)
+        case .ended: .quaternaryLabelColor
+        }
+    }
+
     var color: Color {
         switch self {
         case .needsInput: .orange

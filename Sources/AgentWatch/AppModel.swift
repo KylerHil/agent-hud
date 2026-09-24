@@ -102,6 +102,14 @@ final class AppModel {
             .filter { settings.showIdle || ![.idle, .unknown].contains(displayState($0)) }
     }
 
+    /// Live sessions for the menu bar, in panel order (ended ones left out).
+    var menuBarSessions: [Session] {
+        store.sorted(now: now, staleAfter: settings.staleAfter) { [lastOutput] in lastOutput[$0.id] }
+            .filter { displayState($0) != .ended }
+    }
+
+    var menuBarStates: [SessionState] { menuBarSessions.map(displayState) }
+
     var counts: (attention: Int, running: Int, idle: Int) {
         var a = 0, r = 0, i = 0
         for s in store.sessions.values {
