@@ -2,8 +2,10 @@
 SHELL := /bin/bash
 BUILD_DIR := .build/release
 REPORTER_DEST := $(HOME)/.agentwatch/bin/agentwatch-report
+APP := build/AgentWatch.app
+APP_DEST := $(HOME)/Applications/AgentWatch.app
 
-.PHONY: help build test fake fake-loop install-reporter clean
+.PHONY: help build test fake fake-loop app run install install-reporter clean
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -19,6 +21,26 @@ fake: build ## Play a scripted set of fake sessions through the reporter
 
 fake-loop: build ## Replay fake sessions forever (Ctrl-C ends them)
 	scripts/fake-events.sh --loop
+
+app: build ## Assemble and ad-hoc sign build/AgentWatch.app
+	@rm -rf $(APP)
+	@mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
+	cp Resources/Info.plist $(APP)/Contents/Info.plist
+	cp $(BUILD_DIR)/AgentWatch $(BUILD_DIR)/agentwatch-report $(APP)/Contents/MacOS/
+	@if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns $(APP)/Contents/Resources/; fi
+	codesign --force --sign - --timestamp=none $(APP)/Contents/MacOS/agentwatch-report
+	codesign --force --sign - --timestamp=none $(APP)
+	@echo "built $(APP)"
+
+run: app ## Build and launch the app from build/
+	@pkill -x AgentWatch 2>/dev/null; sleep 0.3; open $(APP)
+
+install: app install-reporter ## Install to ~/Applications (plus the reporter)
+	@pkill -x AgentWatch 2>/dev/null; sleep 0.3
+	@mkdir -p $(HOME)/Applications
+	rm -rf $(APP_DEST) && cp -R $(APP) $(APP_DEST)
+	open $(APP_DEST)
+	@echo "installed $(APP_DEST)"
 
 install-reporter: build ## Copy the reporter to ~/.agentwatch/bin
 	@mkdir -p $(dir $(REPORTER_DEST))
