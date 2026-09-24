@@ -20,6 +20,8 @@ final class AppModel {
     /// Last write to each session's transcript; a transcript still growing means the agent is still working.
     private var lastOutput: [String: Date] = [:]
     @ObservationIgnored private var lastProbe: [String: Date] = [:]
+    @ObservationIgnored private let rollouts = RolloutScanner()
+    @ObservationIgnored private var tickCount = 0
 
     init(settings: AppSettings) {
         self.settings = settings
@@ -54,9 +56,22 @@ final class AppModel {
 
     private func tick() {
         now = Date()
+        tickCount += 1
+        if settings.trackProcesses, tickCount % 3 == 1 { scan() }
         probeTranscripts()
         store.prune(now: now, endedRetention: settings.endedRetention)
         onTick?()
+    }
+
+    /// Liveness from the process table, plus Codex state from rollout logs for sessions without hooks.
+    func scan() {
+        let procs = ProcessScanner.agentProcesses()
+        var events = ProcessScanner.reconcile(store: store, processes: procs, now: now)
+        let codexAlive = procs.contains { $0.agent == .codex }
+        events += RolloutScanner.reconcile(store: store, rollouts: rollouts.recent(now: now),
+                                           codexAlive: codexAlive, now: now)
+        for e in events { EventLog.append(e) }
+        if !events.isEmpty { tailer?.poll() }
     }
 
     /// Every few seconds, for running sessions: note transcript growth, and catch Claude's silent Esc-interrupts.

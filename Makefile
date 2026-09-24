@@ -5,7 +5,7 @@ REPORTER_DEST := $(HOME)/.agentwatch/bin/agentwatch-report
 APP := build/AgentWatch.app
 APP_DEST := $(HOME)/Applications/AgentWatch.app
 
-.PHONY: help build test fake fake-loop app run install install-reporter clean
+.PHONY: help build test fake fake-loop fake-clear app run install install-reporter clean
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -41,6 +41,9 @@ install: app install-reporter ## Install to ~/Applications (plus the reporter)
 	rm -rf $(APP_DEST) && cp -R $(APP) $(APP_DEST)
 	open $(APP_DEST)
 	@echo "installed $(APP_DEST)"
+
+fake-clear: build ## End every fake session
+	scripts/fake-events.sh --clear
 
 install-reporter: build ## Copy the reporter to ~/.agentwatch/bin
 	@mkdir -p $(dir $(REPORTER_DEST))
