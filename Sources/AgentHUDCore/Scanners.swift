@@ -85,6 +85,31 @@ public enum ProcessScanner {
         return events
     }
 
+    static let shells: Set<String> = ["zsh", "bash", "sh", "fish", "dash"]
+
+    /// Sessions waiting on a Bash permission prompt whose command is already running: you approved it.
+    /// No hook fires between approving and the command finishing, but Claude runs each command in a new
+    /// shell under its own process, so a shell started after the prompt means it was allowed. It must start
+    /// over a second after the prompt (no one approves faster; a command batched with the prompted one can
+    /// start at the same moment) and have lived a couple of seconds (a hook's quick `sh -c` doesn't count).
+    public static func approvals(store: SessionStore, table: [ProcTools.Entry], now: Date = Date()) -> [AgentEvent] {
+        var events: [AgentEvent] = []
+        for s in store.sessions.values where s.state == .needsInput && s.agent == .claude {
+            guard let pid = s.pid,
+                  let asked = s.pending.values.filter({ $0.reason == "Permission: Bash" }).map(\.since).min() else { continue }
+            let running = table.contains { e in
+                guard e.ppid == pid, !e.zombie, shells.contains(e.comm), let started = e.started else { return false }
+                return started.timeIntervalSince(asked) > 1 && now.timeIntervalSince(started) >= 2
+            }
+            guard running else { continue }
+            var e = AgentEvent(ts: now.timeIntervalSince1970, agent: .claude, event: "PermissionGranted", sessionId: s.sessionId)
+            e.toolName = "Bash"
+            e.origin = "probe"
+            events.append(e)
+        }
+        return events
+    }
+
     /// A row made from a process alone, with no hook events behind it.
     static func isPlaceholder(_ s: Session) -> Bool { !s.hasHooks && s.sessionId.hasPrefix("pid-") }
 }

@@ -295,7 +295,7 @@ struct ExpandedView: View {
 
     private func headerRow(title: Bool, compactToggle: Bool) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "eye").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+            EyeToggle(model: model)
             if title { Text("Agent HUD").font(.system(size: 12, weight: .semibold)).lineLimit(1).fixedSize() }
             Spacer(minLength: 6)
             DensityToggle(settings: model.settings, compact: compactToggle)
@@ -435,8 +435,9 @@ struct ExpandedView: View {
     private var groupedList: some View {
         let groups = model.groups
         let cards = model.finishedCards
-        if groups.isEmpty && cards.isEmpty {
-            Text("No agent sessions")
+        let showHidden = model.showingHidden && !model.hiddenSessions.isEmpty
+        if groups.isEmpty && cards.isEmpty && !showHidden {
+            Text(model.hiddenSessions.isEmpty ? "No agent sessions" : "Every session is hidden · click the eye to see them")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
@@ -455,9 +456,42 @@ struct ExpandedView: View {
                     .padding(.bottom, 2)
                 }
                 ForEach(groups.filter { $0.title != "Needs you" }) { groupView($0) }
+                if model.showingHidden && !model.hiddenSessions.isEmpty { hiddenSection }
             }
             .padding(.bottom, 6)
         }
+    }
+
+    /// While the eye is on: the sessions you hid, each with Visible to bring it back.
+    private var hiddenSection: some View {
+        let tint = Color.purple
+        return VStack(alignment: .leading, spacing: 1) {
+            Label("HIDDEN \(model.hiddenSessions.count)", systemImage: "eye.slash")
+                .font(.system(size: 9.5, weight: .bold)).tracking(0.5)
+                .foregroundStyle(tint)
+                .padding(.horizontal, 8).padding(.bottom, 2)
+            ForEach(model.hiddenSessions) { s in
+                HStack(spacing: 7) {
+                    Circle().strokeBorder(tint.opacity(0.8), lineWidth: 1.5).frame(width: 8, height: 8)
+                    Text(s.projectName).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle).layoutPriority(1)
+                    if let sub = s.subpath {
+                        Text("› " + sub).font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
+                    }
+                    Spacer(minLength: 4)
+                    EyeButton(title: "Visible", symbol: "eye", tint: tint, help: "Watch this session again") {
+                        withAnimation(.easeOut(duration: 0.2)) { model.unhide(s) }
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+            }
+        }
+        .padding(.vertical, 6)
+        .background(tint.opacity(0.07), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .strokeBorder(tint.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+        .padding(.horizontal, 6)
     }
 
     private func groupView(_ g: AppModel.Group) -> some View {
@@ -483,7 +517,10 @@ struct ExpandedView: View {
 
     private var footer: some View {
         let t = model.today()
-        let text = t.working + t.waiting < 60 ? "No agent time yet today"
+        let hidden = model.hiddenSessions.count
+        let text = model.showingHidden ? "Hide stops watching a session · Visible brings it back"
+            : hidden > 0 ? "\(hidden) hidden · click the eye to see"
+            : t.working + t.waiting < 60 ? "No agent time yet today"
             : "\(shortDuration(t.working)) agent time · \(shortDuration(t.waiting)) waiting on you"
         return HStack(spacing: 6) {
             Button { model.open(.today) } label: { Text(text).lineLimit(1) }
@@ -562,7 +599,13 @@ struct SessionRowView: View {
                 if model.settings.showContextGauge, let f = model.contextFraction(session) {
                     ContextGauge(fraction: f, tokens: model.context[session.id]?.tokens, window: model.contextWindow(session))
                 }
-                if hovering {
+                if model.showingHidden && !selected {
+                    EyeButton(title: "Hide", symbol: "eye.slash",
+                              help: unit == nil ? "Stop watching this session until it ends"
+                                  : "Stop watching this project's sessions until they end") {
+                        withAnimation(.easeOut(duration: 0.2)) { model.hide(unit?.sessions ?? [session]) }
+                    }
+                } else if hovering {
                     Button { model.detailID = session.id } label: {
                         Image(systemName: "info.circle").font(.system(size: 12))
                     }
@@ -1448,5 +1491,54 @@ struct PanelMenu: View {
         .fixedSize()
         .help("Find, today's time, dashboard and settings")
         .accessibilityLabel("Menu")
+    }
+}
+
+/// Hide / Visible: a labelled button, or just the eye when the row is short of room.
+struct EyeButton: View {
+    let title: String
+    let symbol: String
+    var tint: Color? = nil
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            button(Label(title, systemImage: symbol).labelStyle(.titleAndIcon))
+            button(Image(systemName: symbol))
+        }
+        .help(help)
+        .accessibilityLabel(title)
+    }
+
+    private func button(_ label: some View) -> some View {
+        Button(action: action) { label.font(.system(size: 10.5, weight: .semibold)) }
+            .buttonStyle(.bordered)
+            .tint(tint)
+            .controlSize(.mini)
+            .fixedSize()
+    }
+}
+
+/// The header's eye: turns Hide buttons (and the hidden sessions) on and off.
+struct EyeToggle: View {
+    let model: AppModel
+    @State private var hovering = false
+
+    var body: some View {
+        let on = model.showingHidden
+        Button { withAnimation(.easeOut(duration: 0.15)) { model.showingHidden.toggle() } } label: {
+            Image(systemName: on ? "eye.fill" : "eye")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 22, height: 20)
+                .background((on ? Color.purple.opacity(0.25) : hovering ? Color.primary.opacity(0.08) : .clear),
+                            in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(on ? Color.purple : .secondary)
+        .onHover { hovering = $0 }
+        .help(on ? "Done hiding" : "Hide sessions you're not using, or show hidden ones")
+        .accessibilityLabel(on ? "Done hiding sessions" : "Hide or show sessions")
     }
 }

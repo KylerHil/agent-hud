@@ -25,6 +25,15 @@ enum Snapshot {
                 .background(Color(white: 0.12)).environment(\.colorScheme, .dark),
                    to: "\(dir)/home-\(detailed ? "detailed" : "simple").png")
         }
+        // The eye on, with one session hidden.
+        if let s = idle.last {
+            model.hide([s])
+            model.showingHidden = true
+            render(ExpandedView(model: model, forSnapshot: true).frame(width: 340, height: 640).padding(12)
+                .background(Color(white: 0.12)).environment(\.colorScheme, .dark), to: "\(dir)/home-option.png")
+            model.showingHidden = false
+            model.unhide(s)
+        }
         model.settings.homeDetailed = false
         for width in [300.0, 262.0] {
             render(ExpandedView(model: model, forSnapshot: true).frame(width: width, height: 760).padding(12)

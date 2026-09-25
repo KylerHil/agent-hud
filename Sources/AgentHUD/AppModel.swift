@@ -133,7 +133,8 @@ final class AppModel {
     /// Live sessions matching the search, in panel order.
     var searchResults: [Session] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let all = menuBarSessions
+        // Hidden sessions are still findable.
+        let all = sorted.filter { displayState($0) != .ended }
         guard !q.isEmpty else { return all }
         return all.filter { s in
             [s.projectName, s.subpath, s.title, s.hostLabel, s.agent.displayName, s.cwd].compactMap { $0?.lowercased() }
@@ -327,6 +328,7 @@ final class AppModel {
         if tickCount % 300 == 150 { history.refreshIfOlder(than: 240) }
         if detailID.map({ store.sessions[$0] == nil }) == true { detailID = nil }
         pruneFinished()
+        if tickCount % 10 == 5 { pruneHidden() }
         onTick?()
     }
 
@@ -334,6 +336,9 @@ final class AppModel {
     func scan() {
         let procs = ProcessScanner.agentProcesses()
         var events = ProcessScanner.reconcile(store: store, processes: procs, now: now)
+        if store.sessions.values.contains(where: { $0.state == .needsInput }) {
+            events += ProcessScanner.approvals(store: store, table: ProcTools.allProcesses(), now: now)
+        }
         let codexAlive = procs.contains { $0.agent == .codex }
         events += RolloutScanner.reconcile(store: store, rollouts: rollouts.recent(now: now),
                                            codexAlive: codexAlive, now: now)
@@ -427,7 +432,45 @@ final class AppModel {
 
     /// Every session the panel may list, before the filter tab.
     var rows: [Session] {
-        sorted.filter { settings.showIdle || ![.idle, .unknown].contains(displayState($0)) }
+        sorted.filter { !isHidden($0) && (settings.showIdle || ![.idle, .unknown].contains(displayState($0))) }
+    }
+
+    // MARK: Hidden
+
+    /// Sessions you hid (id → when), until they end. Kept across restarts.
+    private(set) var hiddenAt: [String: Date] = AppModel.loadDates("hiddenSessions")
+    /// Toggled by the eye in the header: the list shows Hide buttons and the hidden sessions.
+    var showingHidden = false
+
+    /// Hidden, unless it needs you: a blocked session always comes back.
+    func isHidden(_ s: Session) -> Bool { hiddenAt[s.id] != nil && displayState(s) != .needsInput }
+
+    /// Shown at the bottom of the list while the eye is on.
+    var hiddenSessions: [Session] { sorted.filter { isHidden($0) && displayState($0) != .ended } }
+
+    func hide(_ sessions: [Session]) {
+        for s in sessions { hiddenAt[s.id] = now; finishedAt[s.id] = nil }
+        saveHidden()
+    }
+
+    func unhide(_ s: Session) {
+        hiddenAt[s.id] = nil
+        saveHidden()
+    }
+
+    private func saveHidden() {
+        UserDefaults.standard.set(hiddenAt.mapValues(\.timeIntervalSince1970), forKey: "hiddenSessions")
+    }
+
+    /// Hiding lasts until the session ends. One Agent HUD hasn't heard from in a week is forgotten too.
+    private func pruneHidden() {
+        let gone = hiddenAt.keys.filter { id in
+            if let s = store.sessions[id] { return s.state == .ended }
+            return now.timeIntervalSince(hiddenAt[id]!) > 7 * 86400
+        }
+        guard !gone.isEmpty else { return }
+        for id in gone { hiddenAt[id] = nil }
+        saveHidden()
     }
 
     /// One row of the list: a single session, or (with "Group sessions by project") every session in a
@@ -481,7 +524,7 @@ final class AppModel {
 
     /// Live sessions for the menu bar and switcher, in panel order (ended ones left out).
     var menuBarSessions: [Session] {
-        sorted.filter { displayState($0) != .ended }
+        sorted.filter { displayState($0) != .ended && !isHidden($0) }
     }
 
     /// One dot per session, or per project when grouping (colored by its most urgent session).
@@ -491,7 +534,7 @@ final class AppModel {
 
     var counts: (attention: Int, running: Int, idle: Int) {
         var a = 0, r = 0, i = 0
-        for s in store.sessions.values where isShown(s) && !s.neverActive {
+        for s in store.sessions.values where isShown(s) && !s.neverActive && !isHidden(s) {
             switch displayState(s) {
             case .needsInput: a += 1
             case .running, .stale: r += 1

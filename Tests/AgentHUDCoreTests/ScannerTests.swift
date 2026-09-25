@@ -57,6 +57,31 @@ final class ScannerTests: XCTestCase {
         XCTAssertFalse(store.sessions["claude:empty"]!.neverActive)
     }
 
+    func testARunningShellAfterAPermissionPromptMeansItWasApproved() {
+        let store = SessionStore()
+        var ask = AgentEvent(ts: 100, agent: .claude, event: "PermissionRequest", sessionId: "s")
+        ask.pid = 50
+        ask.toolName = "Bash"
+        ask.detail = "python3 sync.py"
+        ask.origin = "hook"
+        store.apply(ask)
+        XCTAssertEqual(store.sessions["claude:s"]?.state, .needsInput)
+        let at = { (t: Double) in Date(timeIntervalSince1970: t) }
+        let mcp = ProcTools.Entry(pid: 60, ppid: 50, comm: "node", tty: nil, started: at(10))
+        let oldShell = ProcTools.Entry(pid: 61, ppid: 50, comm: "zsh", tty: nil, started: at(90))
+        let hook = ProcTools.Entry(pid: 62, ppid: 50, comm: "sh", tty: nil, started: at(104.5))
+        let batched = ProcTools.Entry(pid: 64, ppid: 50, comm: "zsh", tty: nil, started: at(100.2))
+        // Still waiting: the session's MCP server, an earlier shell, a hook just now, and a command that
+        // started alongside the prompt.
+        XCTAssertEqual(ProcessScanner.approvals(store: store, table: [mcp, oldShell, hook, batched], now: at(105)), [])
+        // The approved command's shell has been running for a few seconds.
+        let command = ProcTools.Entry(pid: 63, ppid: 50, comm: "zsh", tty: nil, started: at(102))
+        let events = ProcessScanner.approvals(store: store, table: [mcp, command], now: at(105))
+        XCTAssertEqual(events.map(\.event), ["PermissionGranted"])
+        events.forEach { store.apply($0) }
+        XCTAssertEqual(store.sessions["claude:s"]?.state, .running)
+    }
+
     func testProcessesWithoutAFolderDoNotGetPlaceholders() {
         let store = SessionStore()
         XCTAssertEqual(ProcessScanner.reconcile(store: store, processes: [proc(30, cwd: nil), proc(31, cwd: "/")]), [])

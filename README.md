@@ -177,6 +177,11 @@ Agent HUD's hooks were in it.
   down until it moves to Idle; × clears it now. **Simple / Detailed** in the header switches between
   one line per session and rows with the agent, app and latest line (remembered). A small ring on
   each row shows how full its context is and turns orange past 80%.
+- **The eye** (top left) hides sessions you have open but aren't using: click it, then Hide on a row.
+  Hidden sessions leave the list and menu bar until they end (across restarts) but still notify you,
+  and one that needs you comes back. Click the eye again to see them, with Visible to bring one back.
+- **Approved commands** switch the row back to Working within a few seconds: Claude sends no hook
+  until the command finishes, so Agent HUD watches for the command's shell starting instead.
 - **ⓘ** (on hover) or right-click → Show Details opens the session: its prompt, tool calls, files
   changed, time spent waiting on you, context used, subagents, and a timeline of recent events.
   Copy Resume Command gives `cd <folder> && claude --resume <id>` (or `codex resume <id>`).

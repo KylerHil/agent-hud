@@ -130,6 +130,14 @@ public final class SessionStore {
             if let id = e.toolUseId { s.pending.removeValue(forKey: id) }
             s.pending.removeValue(forKey: "permission-\(scope ?? "main")")
             if scope == nil { s.pending.removeValue(forKey: Self.notifyKey) }
+        case "PermissionGranted":
+            // Inferred from the process table: the approved command is running.
+            let granted = s.pending.filter { $0.value.reason == "Permission: " + (e.toolName ?? "Bash") }
+            if !granted.isEmpty {
+                for k in granted.keys { s.pending.removeValue(forKey: k) }
+                markRunning(&s)
+                record(&s, now, "Approved", note: e.toolName, tone: .running)
+            }
         case "PostToolBatch":
             // Every call in the batch resolved, so every prompt in this scope was answered.
             markRunning(&s)
