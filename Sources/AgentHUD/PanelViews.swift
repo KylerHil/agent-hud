@@ -1478,6 +1478,15 @@ struct PanelMenu: View {
             }
             Button { model.open(.today) } label: { Label("Today's Time", systemImage: "clock") }
             Button { model.actions.openDashboard() } label: { Label("Dashboard", systemImage: "chart.bar.xaxis") }
+            if model.canSyncDotOrder {
+                Divider()
+                Button { model.syncDotOrder() } label: {
+                    Label("Sync Dot Order with AeroSpace", systemImage: "rectangle.split.3x1")
+                }
+                if !model.settings.dotOrder.isEmpty {
+                    Button { model.settings.dotOrder = [] } label: { Label("Reset Dot Order", systemImage: "arrow.uturn.backward") }
+                }
+            }
             Divider()
             Button { model.openSettings() } label: { Label("Settings…", systemImage: "gearshape") }
         } label: {

@@ -1,5 +1,5 @@
 import AgentHUDCore
-import Foundation
+import AppKit
 import Observation
 
 /// What the panel is showing. Everything lives in the one panel; nothing opens a window of its own.
@@ -528,8 +528,38 @@ final class AppModel {
     }
 
     /// One dot per session, or per project when grouping (colored by its most urgent session).
+    /// After "Sync Dot Order", dots follow AeroSpace's window order; unmatched ones trail in panel order.
     var menuBarStates: [SessionState] {
-        settings.groupByProject ? projectUnits(menuBarSessions).map(state) : menuBarSessions.map(displayState)
+        let names = settings.dotOrder
+        func rank(_ s: Session) -> Int { AeroSpace.rank(root: s.root, cwd: s.cwd, in: names) ?? .max }
+        if settings.groupByProject {
+            return inRankOrder(projectUnits(menuBarSessions)) { $0.sessions.map(rank).min() ?? .max }.map(state)
+        }
+        return inRankOrder(menuBarSessions, rank).map(displayState)
+    }
+
+    /// Stable sort by rank, so equal ranks keep panel order.
+    private func inRankOrder<T>(_ items: [T], _ rank: (T) -> Int) -> [T] {
+        guard !settings.dotOrder.isEmpty else { return items }
+        return items.enumerated().map { (rank($0.element), $0.offset, $0.element) }
+            .sorted { ($0.0, $0.1) < ($1.0, $1.1) }.map(\.2)
+    }
+
+    private(set) var syncingDotOrder = false
+    var canSyncDotOrder: Bool { !Paths.isSandboxed && AeroSpace.binary != nil }
+
+    /// Reads the editor windows' order from AeroSpace. It steps focus through every window, so it only
+    /// runs when asked.
+    func syncDotOrder() {
+        guard canSyncDotOrder, !syncingDotOrder else { return }
+        syncingDotOrder = true
+        Task.detached {
+            let names = AeroSpace.editorWindowOrder()
+            await MainActor.run {
+                self.syncingDotOrder = false
+                if let names { self.settings.dotOrder = names } else { NSSound.beep() }
+            }
+        }
     }
 
     var counts: (attention: Int, running: Int, idle: Int) {

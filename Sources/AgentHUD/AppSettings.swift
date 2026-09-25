@@ -56,6 +56,8 @@ final class AppSettings {
     var dismissedSuggestions: Set<String> {
         didSet { defaults.set(Array(dismissedSuggestions).sorted(), forKey: "dismissedSuggestions") }
     }
+    /// Editor window folder names in AeroSpace's tree order, from the last "Sync Dot Order". Empty: urgency order.
+    var dotOrder: [String] { didSet { defaults.set(dotOrder, forKey: "dotOrder") } }
 
     init() {
         defaults.register(defaults: [
@@ -104,6 +106,7 @@ final class AppSettings {
         showEditorSessions = defaults.bool(forKey: "showEditorSessions")
         showAppSessions = defaults.bool(forKey: "showAppSessions")
         dismissedSuggestions = Set(defaults.stringArray(forKey: "dismissedSuggestions") ?? [])
+        dotOrder = defaults.stringArray(forKey: "dotOrder") ?? []
     }
 
     var staleAfter: TimeInterval { staleMinutes * 60 }

@@ -222,6 +222,12 @@ Agent HUD's hooks were in it.
   🟡 stale, ⚪ idle, 🟣 seen without hooks; `+N` past 10), so you can hide the panel and still see
   everything. The menu groups sessions like the panel; click one to jump to it. It also has
   Jump to Next Waiting, Find Session…, Pause Notifications (15 min to tomorrow), and Dashboard.
+- **AeroSpace dot order:** with [AeroSpace](https://github.com/nikitabobko/AeroSpace) installed,
+  **Sync Dot Order with AeroSpace** (in the menu bar menu or the panel's Menu) orders the dots like your
+  VS Code-family windows in AeroSpace's tree. AeroSpace has no way to query that order, so syncing
+  briefly steps focus through each window on those workspaces, then restores it. It runs only when
+  clicked; **Reset Dot Order** goes back to panel order. Windows are matched by the folder name at
+  the end of their title.
 - **Notifications** have Show, Snooze 10 min, and Mute Session. "Finished" (off by default, and only
   for turns of 2 min or more) says how long the turn took, what it edited and ran, and whether its
   tests passed, with Show Details.
