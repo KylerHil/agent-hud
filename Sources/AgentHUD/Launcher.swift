@@ -115,15 +115,28 @@ enum Launcher {
         }
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
-        NSWorkspace.shared.open([target], withApplicationAt: app, configuration: config) { _, _ in
-            let scheme = host == .cursor ? "cursor" : "vscode"
-            var link = "\(scheme)://anthropic.claude-code/open"
-            if let sessionId { link += "?session=\(sessionId)" }
-            // Give the window a moment to come forward (or finish opening) so it's the one that gets the link.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        let scheme = host == .cursor ? "cursor" : "vscode"
+        var link = "\(scheme)://anthropic.claude-code/open"
+        if let sessionId { link += "?session=\(sessionId)" }
+        // Sent once: a moment after the editor confirms the folder opened (so its window is the one in front
+        // to get the link), or after 2.5 s regardless. VS Code sometimes never confirms, for instance while it's
+        // still busy opening another folder, and waiting for it meant no conversation at all.
+        var sent = false
+        func send(after delay: Double) {
+            guard !sent else { return }
+            sent = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                Focuser.note("editor link \(link)")
                 if let url = URL(string: link) { NSWorkspace.shared.open(url) }
             }
         }
+        NSWorkspace.shared.open([target], withApplicationAt: app, configuration: config) { _, error in
+            DispatchQueue.main.async {
+                if let error { Focuser.note("editor open: \(error.localizedDescription)") }
+                send(after: 1.2)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { send(after: 0) }
     }
 
     /// `wezterm start` opens a window in the running WezTerm (or starts it), with the command in a login
