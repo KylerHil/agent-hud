@@ -85,6 +85,9 @@ public final class SessionStore {
             s.currentDetail = nil
             s.lastPrompt = e.prompt ?? s.lastPrompt
             s.turnStartedAt = now
+            s.turnFiles = []
+            s.turnCommands = 0
+            s.turnTest = nil
             record(&s, now, "Prompt", detail: e.prompt, tone: .prompt)
         case "PreToolUse":
             markRunning(&s)
@@ -94,6 +97,10 @@ public final class SessionStore {
                !s.filesChanged.contains(path) {
                 s.filesChanged.append(path)
             }
+            if let tool = e.toolName, Self.editTools.contains(tool), let path = e.detail, !s.turnFiles.contains(path) {
+                s.turnFiles.append(path)
+            }
+            if let tool = e.toolName, Self.shellTools.contains(tool) { s.turnCommands += 1 }
             record(&s, now, e.toolName ?? "Tool", note: scope.map { _ in e.agentType ?? "subagent" }, detail: e.detail)
             if scope == nil { s.pending.removeValue(forKey: Self.notifyKey) }
             // Codex runs tools one at a time: starting a new tool means any earlier prompt was answered.
@@ -115,6 +122,10 @@ public final class SessionStore {
                 record(&s, now, e.toolName ?? "Tool", note: "failed", detail: e.message ?? e.detail, tone: .error)
             } else if e.event == "PermissionDenied" {
                 record(&s, now, "Denied", note: e.toolName, detail: e.detail, tone: .error)
+            }
+            if e.event != "PermissionDenied", let tool = e.toolName, Self.shellTools.contains(tool), let cmd = e.detail,
+               Self.isTestCommand(cmd) {
+                s.turnTest = TestRun(command: cmd, passed: e.event == "PostToolUse", at: now)
             }
             if let id = e.toolUseId { s.pending.removeValue(forKey: id) }
             s.pending.removeValue(forKey: "permission-\(scope ?? "main")")
@@ -219,6 +230,24 @@ public final class SessionStore {
     }
 
     static let editTools: Set<String> = ["Edit", "Write", "MultiEdit", "NotebookEdit"]
+    /// Claude's Bash and Codex's shell tools.
+    static let shellTools: Set<String> = ["Bash", "shell", "exec_command", "local_shell"]
+
+    /// Whether a shell command runs tests: `pnpm test`, `swift test`, `pytest -k x`, `make test`, `npx vitest`.
+    /// Only the command before any quote is looked at, so `git commit -m "fix test"` doesn't count.
+    public static func isTestCommand(_ command: String) -> Bool {
+        let head = command.prefix { $0 != "\"" && $0 != "'" }.lowercased()
+        let runners: Set<String> = ["pytest", "jest", "vitest", "mocha", "rspec", "phpunit", "playwright", "ava", "tap"]
+        let notRunners: Set<String> = ["git", "echo", "cat", "grep", "rg", "sed", "ls", "cd", "find", "gh", "mkdir", "rm", "mv", "cp"]
+        // `cd apps/web && pnpm test`: each part of a compound command counts on its own.
+        let parts = head.replacingOccurrences(of: "&&", with: ";").replacingOccurrences(of: "||", with: ";")
+            .split(whereSeparator: { $0 == ";" || $0 == "|" })
+        return parts.contains { part in
+            let words = part.split { !($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == ":") }.map(String.init)
+            guard let first = words.first, !notRunners.contains(first) else { return false }
+            return words.contains { $0 == "test" || $0 == "tests" || $0.hasPrefix("test:") || runners.contains($0) }
+        }
+    }
 
     private func record(_ s: inout Session, _ at: Date, _ kind: String, note: String? = nil, detail: String? = nil,
                         tone: TimelineEntry.Tone = .normal) {

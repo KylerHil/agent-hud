@@ -172,19 +172,25 @@ Agent HUD's hooks were in it.
   VS Code/Cursor window that already has the project open (read from the editor's list of open
   windows, so it never opens a second window for a subfolder), the Claude or ChatGPT app, else the
   folder in Finder.
-- **Tabs** filter to All, You (needs input), Busy, or Idle. Rows are grouped the same way, and
-  each shows the app it lives in.
+- **The list** runs Needs you, Just finished, Working, Idle. **Just finished** shows a card for each
+  session that finished a turn in the last 2 minutes, with the start of its reply and a bar that runs
+  down until it moves to Idle; × clears it now. **Simple / Detailed** in the header switches between
+  one line per session and rows with the agent, app and latest line (remembered). A small ring on
+  each row shows how full its context is and turns orange past 80%.
 - **ⓘ** (on hover) or right-click → Show Details opens the session: its prompt, tool calls, files
   changed, time spent waiting on you, context used, subagents, and a timeline of recent events.
   Copy Resume Command gives `cd <folder> && claude --resume <id>` (or `codex resume <id>`).
 - **Right-click** also has Open Folder, Copy Session ID, Mute Notifications, Dismiss.
 - **⌃** collapses to a pill. While something needs input the pill names it (`● web-app  Permission: Bash  +1`)
   and pulses orange; otherwise it shows counts. Click the pill to expand.
-- **⌃⌥Space** (or the magnifying glass) brings the panel forward with a search field: type to
-  filter, ↑↓, Return or ⌘1–9 to jump, Esc to close. **⌃⌥A** shows or hides the panel. Change either
+- **⌃⌥Space** (or Menu → Find a Session) brings the panel forward with a search field: type to
+  filter, ↑↓, Return or ⌘1–9 to jump, Esc to close. Typing a project name also offers **Start** (a new
+  Claude session there, in VS Code or your terminal) and **Resume** (earlier conversations by title). **⌃⌥A** shows or hides the panel. Change either
   under gear → General → Shortcuts (click, then press the new combination), or turn them off.
-- **Everything happens in the panel.** The dashboard (chart icon) and settings (gear) open inside
-  it, and it grows to fit them; nothing opens a separate window. CSV export saves straight to
+- **Everything happens in the panel.** **Menu** in the header has Find, Today's Time, Dashboard and
+  Settings; they open inside the panel, which grows to fit; nothing opens a separate window.
+  **Today's Time** (also the footer) shows where today's agent time went, by project, in hours and
+  decimal hours, with Copy as text for a timesheet. CSV export saves straight to
   Downloads.
 - **Group sessions by project** (gear → General): one row per project instead of one per session,
   so three VS Code sessions in one repo are one row. The row shows the project's most urgent
@@ -211,10 +217,15 @@ Agent HUD's hooks were in it.
   🟡 stale, ⚪ idle, 🟣 seen without hooks; `+N` past 10), so you can hide the panel and still see
   everything. The menu groups sessions like the panel; click one to jump to it. It also has
   Jump to Next Waiting, Find Session…, Pause Notifications (15 min to tomorrow), and Dashboard.
-- **Notifications** have Show, Snooze 10 min, and Mute Session. "Finished" says how long the turn
-  took and how many files changed.
-- **Settings:** opacity (the panel goes fully opaque on hover), pulse, idle sessions, stale and
-  ended timings, notifications (needs input, finished, sound, re-remind interval), launch at login.
+- **Notifications** have Show, Snooze 10 min, and Mute Session. "Finished" (off by default, and only
+  for turns of 2 min or more) says how long the turn took, what it edited and ran, and whether its
+  tests passed, with Show Details.
+- **Permissions** (Settings): commands you approve again and again (3+ times in two weeks in a
+  project) are offered as allow rules for that project's `.claude/settings.local.json`, with a
+  preview first and a backup in `~/.agenthud/backups`. Risky commands are never suggested.
+- **Settings:** which sessions to show (terminals, tmux, editors, desktop apps), opacity (the panel
+  goes fully opaque on hover), pulse, idle sessions, stale and ended timings, the Claude context
+  window (Automatic reads your 1M models from `~/.claude.json`), notifications (needs input, finished, sound, re-remind interval), launch at login.
 
 ## Testing without agents
 

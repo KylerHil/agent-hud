@@ -17,7 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.onTransition = { [unowned self] t, s in notifier.handle(t, s) }
         model.onTick = { [unowned self] in notifier.tick() }
         model.actions = PanelActions(openDashboard: { [unowned self] in openDashboard() },
-                                     focusPanel: { [unowned self] in panel.showForTyping() })
+                                     focusPanel: { [unowned self] in panel.showForTyping() },
+                                     showPanel: { [unowned self] in panel.show() })
         setUpStatusItem()
         model.start()
         model.updater.canAutoInstall = { [unowned self] in model.counts.attention == 0 }
@@ -261,7 +262,7 @@ extension AppDelegate: NSMenuDelegate {
 
     @objc func focusSession(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String, let s = model.store.sessions[id] else { return }
-        Focuser.focus(s)
+        model.jump(s)
     }
 
     @objc func pauseNotifications(_ sender: NSMenuItem) {
@@ -274,7 +275,7 @@ extension AppDelegate: NSMenuDelegate {
         }
     }
 
-    @objc func focusNextWaiting() { if let s = model.nextWaiting { Focuser.focus(s) } }
+    @objc func focusNextWaiting() { if let s = model.nextWaiting { model.jump(s) } }
     @objc func openSwitcher() { toggleSearch() }
     @objc func openDashboard() {
         model.openDashboard()

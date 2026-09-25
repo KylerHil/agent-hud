@@ -40,6 +40,8 @@ public enum HookPayload {
     static func stripContextTags(_ prompt: String) -> String {
         let stripped = prompt.replacingOccurrences(
             of: #"<(ide_[a-z_]+|system-reminder)>[\s\S]*?</\1>"#, with: "", options: .regularExpression)
+            // Pasted blocks keep their text; only the wrapper tags go.
+            .replacingOccurrences(of: #"</?pasted_content[^>]*>"#, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return stripped.isEmpty ? prompt : stripped
     }

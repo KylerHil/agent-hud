@@ -43,6 +43,8 @@ public enum Paths {
     public static var installedReporter: URL { binDir.appendingPathComponent("agenthud-report") }
     public static var backupsDir: URL { home.appendingPathComponent("backups", isDirectory: true) }
 
+    /// Claude Code's own state file: per-project model usage, among much else.
+    public static var claudeState: URL { userHome.appendingPathComponent(".claude.json") }
     public static var claudeSettings: URL { userHome.appendingPathComponent(".claude/settings.json") }
     public static var claudeProjects: URL { userHome.appendingPathComponent(".claude/projects", isDirectory: true) }
     /// Claude desktop's per-session metadata for its Code tab.

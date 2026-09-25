@@ -18,20 +18,25 @@ struct PanelSettingsView: View {
                 .buttonStyle(.plain)
                 .help("Back to sessions")
                 .accessibilityLabel("Back to sessions")
-                Text("Settings").font(.system(size: 13, weight: .semibold))
+                Text("Settings").font(.system(size: 13, weight: .semibold)).lineLimit(1).fixedSize()
                 Spacer()
-                Picker("Section", selection: Binding(get: { model.settingsTab }, set: { model.settingsTab = $0 })) {
-                    Text("General").tag(SettingsTab.general)
-                    Text("Sources").tag(SettingsTab.sources)
-                    Text("Notifications").tag(SettingsTab.notifications)
-                    Text("Hooks").tag(SettingsTab.hooks)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.top, 8)
+            // The tabs get a row of their own, so the title never has to squeeze in beside them.
+            Picker("Section", selection: Binding(get: { model.settingsTab }, set: { model.settingsTab = $0 })) {
+                Text("General").tag(SettingsTab.general)
+                Text("Sources").tag(SettingsTab.sources)
+                Text("Notifications").tag(SettingsTab.notifications)
+                Text("Permissions").tag(SettingsTab.permissions)
+                Text("Hooks").tag(SettingsTab.hooks)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 12)
+            .padding(.top, 6)
+            .padding(.bottom, 8)
             Divider().opacity(0.5)
             SettingsView(model: model, settings: model.settings)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -50,6 +55,7 @@ struct SettingsView: View {
         case .general: general
         case .sources: SourcesPane(model: model, settings: settings)
         case .notifications: notifications
+        case .permissions: PermissionsPane(model: model, settings: settings)
         case .hooks: Form { Section("Hooks") { HooksPane(onChange: { model.refreshLegacyHooks() }) } }.formStyle(.grouped)
         }
     }
@@ -68,11 +74,47 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Toggle("Show idle sessions", isOn: $settings.showIdle)
+                VStack(alignment: .leading, spacing: 3) {
+                    Toggle("Show how full each session's context is", isOn: $settings.showContextGauge)
+                    Text("A small ring on each row. It turns orange past 80%, before the agent compacts the conversation.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                Picker("Claude context window", selection: $settings.claudeContextWindow) {
+                    Text("Automatic").tag(0)
+                    Text("200K tokens").tag(200_000)
+                    Text("1M tokens").tag(1_000_000)
+                }
+                .disabled(!settings.showContextGauge)
+                .help("Transcripts don't record the window size. Automatic assumes 200K until a session uses more than that.")
                 Toggle("Pulse when a session needs input", isOn: $settings.pulse)
                 Stepper("Mark running sessions stale after \(Int(settings.staleMinutes)) min",
                         value: $settings.staleMinutes, in: 2...120, step: 1)
                 Stepper("Keep ended sessions for \(Int(settings.endedRetentionMinutes)) min",
                         value: $settings.endedRetentionMinutes, in: 0...60, step: 1)
+            }
+            Section {
+                Toggle("Terminals", isOn: $settings.showTerminalSessions)
+                    .help("Terminal, iTerm2, Ghostty, Warp and WezTerm")
+                Toggle("tmux", isOn: $settings.showTmuxSessions)
+                Toggle("Editors", isOn: $settings.showEditorSessions)
+                    .help("VS Code, Cursor and Windsurf")
+                Toggle("Desktop apps", isOn: $settings.showAppSessions)
+                    .help("The Claude, ChatGPT and Codex apps")
+            } header: {
+                Text("Show sessions from")
+            } footer: {
+                Text("Hidden sessions don't appear in the panel or menu bar and don't notify you.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Picker("Start new sessions in", selection: $settings.launchHost) {
+                    ForEach(Launcher.Host.allCases.filter(\.isInstalled)) { Text($0.title).tag($0.rawValue) }
+                }
+            } header: {
+                Text("Find and start")
+            } footer: {
+                Text("Type a project name in the finder (\(settings.findShortcut.display)) to start a new Claude session there, or to resume an earlier conversation by its title.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Updates") {
                 UpdatesSection(updater: model.updater, settings: settings)
@@ -103,6 +145,15 @@ struct SettingsView: View {
             Section("Notifications") {
                 Toggle("Notify when a session needs input", isOn: $settings.notifyNeedsInput)
                 Toggle("Notify when a session finishes its turn", isOn: $settings.notifyFinished)
+                Picker("Only for turns that took at least", selection: $settings.finishedMinMinutes) {
+                    Text("Any length").tag(0.0)
+                    Text("1 min").tag(1.0)
+                    Text("2 min").tag(2.0)
+                    Text("5 min").tag(5.0)
+                    Text("10 min").tag(10.0)
+                }
+                .disabled(!settings.notifyFinished)
+                .help("The banner says how long it took, what it edited and ran, and whether its tests passed")
                 Toggle("Play sound", isOn: $settings.playSound)
                 Picker("Remind again while waiting", selection: $settings.remindMinutes) {
                     Text("Never").tag(0.0)
@@ -279,6 +330,111 @@ struct UpdatesSection: View {
         case .available: Text("New version").foregroundStyle(.orange)
         case .installing: Text("Updating; Agent HUD will restart").foregroundStyle(.secondary)
         case .failed(let msg): Text(msg).foregroundStyle(.red).lineLimit(1).help(msg)
+        }
+    }
+}
+
+/// Commands you keep approving, as allow rules for the project. Nothing is added without a click, and the
+/// change is shown first.
+struct PermissionsPane: View {
+    let model: AppModel
+    @Bindable var settings: AppSettings
+    @State private var previewing: String?
+    @State private var message: (text: String, ok: Bool)?
+
+    var body: some View {
+        Form {
+            Section {
+                if let m = message {
+                    Label(m.text, systemImage: m.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 11.5)).foregroundStyle(m.ok ? Color.green : .red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if model.suggestions.isEmpty {
+                    Text("Nothing to suggest yet. When you approve the same command in a project at least 3 times in two weeks, it shows up here.")
+                        .font(.system(size: 11.5)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(model.suggestions) { row($0) }
+                }
+            } header: {
+                Text("Commands you keep approving. Allowing one lets Claude run it in that project without asking.")
+            } footer: {
+                Text("Rules go in the project's .claude/settings.local.json, your personal settings that aren't committed. The previous file is backed up to ~/.agenthud/backups. You still answer every other prompt in the agent.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if !settings.dismissedSuggestions.isEmpty {
+                Section {
+                    Button("Show \(settings.dismissedSuggestions.count) dismissed suggestion\(settings.dismissedSuggestions.count == 1 ? "" : "s") again") {
+                        settings.dismissedSuggestions = []
+                        model.refreshSuggestions()
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { model.refreshSuggestions() }
+    }
+
+    private func row(_ s: PermissionSuggestion) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(s.label).font(.system(size: 12.5, weight: .semibold, design: .monospaced)).lineLimit(1)
+                Text("in \(s.project)").font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 6)
+                Text("approved \(s.count)×").font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
+                    .help("Last approved \(s.last.formatted(.relative(presentation: .named)))")
+            }
+            if !s.examples.isEmpty {
+                Text(s.examples.joined(separator: "\n"))
+                    .font(.system(size: 10.5, design: .monospaced)).foregroundStyle(.secondary)
+                    .lineLimit(3).truncationMode(.tail)
+            }
+            if previewing == s.id {
+                preview(s)
+            }
+            HStack(spacing: 8) {
+                Button(previewing == s.id ? "Hide change" : "Preview change") {
+                    previewing = previewing == s.id ? nil : s.id
+                }
+                .buttonStyle(.link)
+                .font(.system(size: 11.5))
+                Spacer()
+                Button("Dismiss") { model.dismissSuggestion(s) }
+                    .controlSize(.small)
+                Button("Allow \(s.rule)") { add(s) }
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
+                    .lineLimit(1)
+                    .help("Adds \(s.rule) to \(PermissionRules.localSettings(root: s.root).path)")
+            }
+        }
+        .padding(.vertical, 3)
+    }
+
+    @ViewBuilder
+    private func preview(_ s: PermissionSuggestion) -> some View {
+        if let plan = try? PermissionRules.plan(adding: s.rule, root: s.root) {
+            ScrollView(.horizontal) {
+                Text(plan.diff.isEmpty ? "No change" : plan.diff)
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(8)
+            }
+            .frame(maxHeight: 180)
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+        } else {
+            Text("Couldn't read \(PermissionRules.localSettings(root: s.root).path).").font(.caption).foregroundStyle(.red)
+        }
+    }
+
+    private func add(_ s: PermissionSuggestion) {
+        do {
+            try model.accept(s)
+            previewing = nil
+            message = ("Allowed \(s.rule) in \(s.project). If a session that's already running still asks, restart it.", true)
+        } catch {
+            message = (error.localizedDescription, false)
         }
     }
 }

@@ -35,7 +35,7 @@ final class PanelController {
 
     private static func sizeKey(_ m: PanelMode) -> String {
         switch m {
-        case .list: "panelSize"
+        case .list, .today: "panelSize" // Today opens in the list's place, at its size
         case .dashboard: "dashboardSize"
         case .settings: "settingsSize"
         }
@@ -43,7 +43,7 @@ final class PanelController {
 
     private static func defaultSize(_ m: PanelMode) -> CGSize {
         switch m {
-        case .list: defaultSize
+        case .list, .today: defaultSize
         case .dashboard: CGSize(width: 800, height: 720)
         case .settings: CGSize(width: 580, height: 600)
         }

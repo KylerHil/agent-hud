@@ -31,6 +31,10 @@ enum DashboardRange: String, CaseIterable {
 final class HistoryModel {
     private let settings: AppSettings
     private(set) var report: HistoryReport?
+    /// Today, whatever the dashboard's range: for the Today view.
+    private(set) var today: HistoryReport?
+    /// The last 30 days: projects and conversations the palette can start or resume.
+    private(set) var recent: HistoryReport?
     private(set) var indexing = false
     private(set) var updatedAt: Date?
     @ObservationIgnored private var index: HistoryIndex?
@@ -58,12 +62,17 @@ final class HistoryModel {
         queue.async { [weak self] in
             let index = existing ?? HistoryIndex()
             if reindex || existing == nil { index.refresh() }
-            let report = index.report(from: start, to: Date(), idleGap: gap)
+            let now = Date()
+            let report = index.report(from: start, to: now, idleGap: gap)
+            let today = index.report(from: Calendar.current.startOfDay(for: now), to: now, idleGap: gap)
+            let recent = index.report(from: now.addingTimeInterval(-30 * 86400), to: now, idleGap: gap)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.index = index
                     self.report = report
+                    self.today = today
+                    self.recent = recent
                     self.updatedAt = Date()
                     self.indexing = false
                     if self.pending { self.pending = false; self.refresh(reindex: false) }
@@ -72,11 +81,20 @@ final class HistoryModel {
         }
     }
 
+    /// Refreshes unless it did within `maxAge`: the Today view and the palette call this whenever they open.
+    func refreshIfOlder(than maxAge: TimeInterval) {
+        if let updatedAt, Date().timeIntervalSince(updatedAt) < maxAge { return }
+        refresh()
+    }
+
     /// Synchronous, for `--snapshot`.
     func loadNow() {
         let index = self.index ?? HistoryIndex()
         index.refresh()
         self.index = index
-        report = index.report(from: range.start(now: Date()), to: Date(), idleGap: settings.idleGapMinutes * 60)
+        let now = Date(), gap = settings.idleGapMinutes * 60
+        report = index.report(from: range.start(now: now), to: now, idleGap: gap)
+        today = index.report(from: Calendar.current.startOfDay(for: now), to: now, idleGap: gap)
+        recent = index.report(from: now.addingTimeInterval(-30 * 86400), to: now, idleGap: gap)
     }
 }

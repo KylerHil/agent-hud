@@ -26,9 +26,10 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let show = UNNotificationAction(identifier: "show", title: "Show", options: [.foreground])
         let snooze = UNNotificationAction(identifier: "snooze", title: "Snooze \(Int(Self.snoozeMinutes)) min")
         let mute = UNNotificationAction(identifier: "mute", title: "Mute Session")
+        let details = UNNotificationAction(identifier: "details", title: "Show Details", options: [.foreground])
         center.setNotificationCategories([
             UNNotificationCategory(identifier: Self.needsCategory, actions: [show, snooze, mute], intentIdentifiers: []),
-            UNNotificationCategory(identifier: Self.doneCategory, actions: [show, mute], intentIdentifiers: []),
+            UNNotificationCategory(identifier: Self.doneCategory, actions: [show, details, mute], intentIdentifiers: []),
         ])
         center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error { NSLog("Agent HUD notification authorization failed: \(error.localizedDescription)") }
@@ -50,26 +51,24 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         case .needsInput where settings.notifyNeedsInput:
             notifyNeedsInput(s)
         case .idle where settings.notifyFinished && (t.from == .running || t.from == .needsInput):
+            // Short turns you were likely watching don't need a banner; failures always get one.
+            if s.error == nil, let d = s.lastTurnDuration, d < settings.finishedMinMinutes * 60 { break }
+            let took = s.lastTurnDuration.flatMap { $0 >= 1 ? " · \(shortDuration($0))" : nil } ?? ""
             post(id: "done-\(s.id)", session: s, category: Self.doneCategory,
-                 title: s.error != nil ? "\(s.projectName) failed" : "\(s.projectName) finished",
+                 title: s.error != nil ? "\(s.projectName) failed" : "\(s.projectName) finished" + took,
                  body: finishedBody(s))
         default:
             break
         }
     }
 
-    /// "Done in 12m 4s · 3 files changed", then what the agent said last.
+    /// The recap: "Edited 3 files · ran 7 commands · tests passed", then what the agent said last.
     private func finishedBody(_ s: Session) -> String {
         if let e = s.error { return e }
         if s.isChat { return "Reply ready" }
-        var facts: [String] = []
-        if let d = s.lastTurnDuration, d >= 1 { facts.append("Done in \(longDuration(d))") }
-        if !s.filesChanged.isEmpty {
-            facts.append("\(s.filesChanged.count) file\(s.filesChanged.count == 1 ? "" : "s") changed")
-        }
-        let head = facts.joined(separator: " · ")
         let tail = s.lastMessage ?? "\(s.agent.displayName) is waiting for your next prompt"
-        return head.isEmpty ? tail : head + "\n" + tail
+        guard let head = s.turnSummary else { return tail }
+        return head + "\n" + tail
     }
 
     /// Called every second; re-reminds about sessions still waiting.
@@ -139,10 +138,12 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             case "mute":
                 if !model.isMuted(s) { model.toggleMute(s) }
                 center.removeDeliveredNotifications(withIdentifiers: [requestID])
+            case "details":
+                model.showDetail(s)
             case UNNotificationDismissActionIdentifier:
                 break
             default:
-                Focuser.focus(s)
+                model.jump(s)
             }
         }
     }

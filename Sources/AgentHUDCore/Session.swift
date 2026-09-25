@@ -53,6 +53,13 @@ public struct TimelineEntry: Equatable, Sendable {
     public var tone: Tone
 }
 
+/// A test command the agent ran, and how it came out.
+public struct TestRun: Equatable, Sendable {
+    public var command: String
+    public var passed: Bool
+    public var at: Date
+}
+
 public struct Session: Identifiable, Equatable, Sendable {
     public var id: String            // "<agent>:<session_id>"
     public var agent: AgentKind
@@ -100,6 +107,10 @@ public struct Session: Identifiable, Equatable, Sendable {
     /// When the current (or last) turn began, and how long the last finished one took.
     public var turnStartedAt: Date?
     public var lastTurnDuration: TimeInterval?
+    /// The current (or last) turn: files it edited, commands it ran and its last test run, for the recap.
+    public var turnFiles: [String] = []
+    public var turnCommands = 0
+    public var turnTest: TestRun?
 
     public init(id: String, agent: AgentKind, sessionId: String, base: SessionState, stateSince: Date, lastEventAt: Date) {
         self.id = id
@@ -186,6 +197,17 @@ public struct Session: Identifiable, Equatable, Sendable {
     static func shellQuote(_ s: String) -> String {
         s.allSatisfy { $0.isLetter || $0.isNumber || "/._-~".contains($0) } ? s
             : "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// "Edited 3 files · ran 7 commands · tests passed": what the last turn did, or nil when it did none of it.
+    public var turnSummary: String? {
+        var parts: [String] = []
+        if !turnFiles.isEmpty { parts.append("edited \(turnFiles.count) file\(turnFiles.count == 1 ? "" : "s")") }
+        if turnCommands > 0 { parts.append("ran \(turnCommands) command\(turnCommands == 1 ? "" : "s")") }
+        if let t = turnTest { parts.append(t.passed ? "tests passed" : "tests failed") }
+        guard let first = parts.first else { return nil }
+        parts[0] = first.prefix(1).uppercased() + first.dropFirst()
+        return parts.joined(separator: " · ")
     }
 
     /// Oldest outstanding request, the one worth showing.

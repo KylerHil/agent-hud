@@ -41,6 +41,7 @@ struct PanelActions {
     var openDashboard: () -> Void = {}
     /// Makes the panel take keystrokes, for the search field.
     var focusPanel: () -> Void = {}
+    var showPanel: () -> Void = {}
 }
 
 // MARK: - Small pieces
@@ -245,19 +246,20 @@ struct ExpandedView: View {
         VStack(spacing: 0) {
             if model.mode == .dashboard {
                 DashboardView(model: model, forSnapshot: forSnapshot)
+            } else if model.mode == .today {
+                TodayView(model: model, forSnapshot: forSnapshot)
             } else if model.mode == .settings {
                 PanelSettingsView(model: model)
             } else if let id = model.detailID, let s = model.store.sessions[id] {
                 SessionDetailView(model: model, session: s, forSnapshot: forSnapshot)
             } else {
                 header
-                if model.searching {
-                    SearchField(model: model)
-                } else {
-                    tabs
-                }
+                if model.searching { SearchField(model: model) }
                 if model.legacyHooks && !model.searching { legacyBanner }
                 if let r = model.updater.available, !model.searching { updateBanner(r) }
+                if let first = model.suggestions.first, !model.searching, !model.suggestionBannerHidden {
+                    suggestionBanner(first, more: model.suggestions.count - 1)
+                }
                 if forSnapshot {
                     list
                     Spacer(minLength: 0)
@@ -276,17 +278,14 @@ struct ExpandedView: View {
         .attentionGlow(attention, pulse: model.settings.pulse, shape: shape)
     }
 
+    /// Narrow panels drop the title first, then shrink the Simple / Detailed switch to one button,
+    /// so the header never forces the panel wider than it is.
     private var header: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "eye").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-            Text("Agent HUD").font(.system(size: 12, weight: .semibold))
-            Spacer()
-            IconButton(symbol: "magnifyingglass", help: "Find a session (\(model.settings.findShortcut.display))") {
-                if model.searching { model.endSearch() } else { model.beginSearch(); model.actions.focusPanel() }
-            }
-            IconButton(symbol: "chart.bar.xaxis", help: "Dashboard") { model.actions.openDashboard() }
-            IconButton(symbol: "gearshape", help: "Settings") { model.openSettings() }
-            IconButton(symbol: "chevron.up", help: "Collapse to pill") { model.settings.collapsed = true }
+        ViewThatFits(in: .horizontal) {
+            headerRow(title: true, compactToggle: false, menuLabel: true)
+            headerRow(title: true, compactToggle: false, menuLabel: false)
+            headerRow(title: false, compactToggle: false, menuLabel: false)
+            headerRow(title: false, compactToggle: true, menuLabel: false)
         }
         .padding(.leading, 12)
         .padding(.trailing, 6)
@@ -295,43 +294,14 @@ struct ExpandedView: View {
         .contentShape(Rectangle())
     }
 
-    private var tabs: some View {
-        let units = model.units
-        let current = model.filter
-        return HStack(spacing: 2) {
-            ForEach(PanelFilter.allCases, id: \.self) { f in
-                let n = units.filter { f.includes(model.state($0)) }.count
-                Button { model.filter = f } label: {
-                    HStack(spacing: 4) {
-                        if f != .all {
-                            Circle().fill(dotColor(f)).frame(width: 6, height: 6)
-                        }
-                        Text(f.title).fontWeight(.semibold)
-                        Text("\(n)").foregroundStyle(.secondary)
-                    }
-                    .font(.system(size: 10.5).monospacedDigit())
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 20)
-                    .background(current == f ? Color.primary.opacity(0.12) : .clear,
-                                in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(current == f ? .primary : .secondary)
-                .accessibilityAddTraits(current == f ? .isSelected : [])
-            }
-        }
-        .padding(2)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .padding(.horizontal, 8)
-        .padding(.bottom, 6)
-    }
-
-    private func dotColor(_ f: PanelFilter) -> Color {
-        switch f {
-        case .needs: .orange
-        case .working: .green
-        default: Color(nsColor: .tertiaryLabelColor)
+    private func headerRow(title: Bool, compactToggle: Bool, menuLabel: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "eye").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+            if title { Text("Agent HUD").font(.system(size: 12, weight: .semibold)).lineLimit(1).fixedSize() }
+            Spacer(minLength: 6)
+            DensityToggle(settings: model.settings, compact: compactToggle)
+            PanelMenu(model: model, showLabel: menuLabel)
+            IconButton(symbol: "chevron.up", help: "Collapse to pill") { model.settings.collapsed = true }
         }
     }
 
@@ -349,6 +319,40 @@ struct ExpandedView: View {
             .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 6)
+    }
+
+    /// A command you keep approving could be allowed instead. Opens the Permissions settings to review it.
+    private func suggestionBanner(_ sug: PermissionSuggestion, more: Int) -> some View {
+        HStack(spacing: 6) {
+            Button { model.openSettings(.permissions) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.shield").foregroundStyle(Color.accentColor)
+                    (Text("Approved ") + Text(sug.label).font(.system(size: 10.5, design: .monospaced))
+                        + Text(" \(sug.count)× in \(sug.project)" + (more > 0 ? " (+\(more) more)" : "")))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 4)
+                    Text("Review").fontWeight(.semibold).foregroundStyle(Color.accentColor)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Allow it in that project so Claude stops asking")
+            Button { model.hideSuggestionBanner() } label: {
+                Image(systemName: "xmark").font(.system(size: 8.5, weight: .bold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Hide until there's a new suggestion (they stay in Settings › Permissions)")
+            .accessibilityLabel("Hide suggestion")
+        }
+        .font(.system(size: 10.5))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
         .padding(.horizontal, 8)
         .padding(.bottom, 6)
     }
@@ -382,58 +386,99 @@ struct ExpandedView: View {
         }
     }
 
-    /// While searching: one flat list, the selected row highlighted, numbered for ⌘1–9.
+    /// While searching: live sessions, then projects to start in and conversations to resume. The selected
+    /// line is highlighted; Return or ⌘1–9 opens it.
     @ViewBuilder
     private var searchList: some View {
-        let rows = model.searchResults
-        if rows.isEmpty {
-            Text(model.query.isEmpty ? "No agent sessions" : "No matches")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity).padding(.vertical, 14)
-        } else {
-            LazyVStack(alignment: .leading, spacing: 2) {
-                ForEach(Array(rows.enumerated()), id: \.element.id) { i, s in
-                    SessionRowView(model: model, controller: controller, session: s,
-                                   selected: i == min(model.searchSelection, rows.count - 1))
+        let items = model.paletteItems
+        let selected = min(model.searchSelection, max(0, items.count - 1))
+        LazyVStack(alignment: .leading, spacing: 2) {
+            if items.isEmpty {
+                Text(model.query.isEmpty ? "No agent sessions" : "No matching sessions, projects or conversations")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity).padding(.vertical, 14)
+            }
+            ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
+                if let title = paletteHeading(items, i) {
+                    Text(title.uppercased())
+                        .font(.system(size: 9.5, weight: .bold)).tracking(0.5).foregroundStyle(.secondary)
+                        .padding(.horizontal, 12).padding(.top, i == 0 ? 0 : 6).padding(.bottom, 1)
+                }
+                switch item {
+                case .session(let s):
+                    SessionRowView(model: model, controller: controller, session: s, selected: i == selected)
+                default:
+                    PaletteActionRow(model: model, item: item, selected: i == selected)
                 }
             }
-            .padding(.bottom, 6)
+            if model.query.trimmingCharacters(in: .whitespaces).isEmpty {
+                Text("Type a project name to start a new session there or resume an earlier one.")
+                    .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 12).padding(.top, 6)
+            }
         }
+        .padding(.bottom, 6)
     }
 
+    /// A heading where the kind of item changes: "Start" before the first project, "Resume" before the
+    /// first conversation. Live sessions need none.
+    private func paletteHeading(_ items: [PaletteItem], _ i: Int) -> String? {
+        func kind(_ item: PaletteItem) -> Int {
+            switch item { case .session: 0; case .start: 1; case .resume: 2 }
+        }
+        let k = kind(items[i])
+        guard k != 0, i == 0 || kind(items[i - 1]) != k else { return nil }
+        return k == 1 ? "Start" : "Resume"
+    }
+
+    /// Needs you, then cards for turns that just finished, then Working and Idle.
     @ViewBuilder
     private var groupedList: some View {
         let groups = model.groups
-        if groups.isEmpty {
-            Text(model.rows.isEmpty ? "No agent sessions" : "Nothing here")
+        let cards = model.finishedCards
+        if groups.isEmpty && cards.isEmpty {
+            Text("No agent sessions")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
         } else {
             LazyVStack(alignment: .leading, spacing: 8) {
-                ForEach(groups) { g in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 5) {
-                            Text(g.title.uppercased()).fontWeight(.bold)
-                            Text("\(g.units.count)")
-                        }
-                        .font(.system(size: 9.5))
-                        .tracking(0.5)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 1)
-                        ForEach(g.units) { u in
-                            if u.isProject {
-                                SessionRowView(model: model, controller: controller, session: u.primary, unit: u)
-                            } else {
-                                SessionRowView(model: model, controller: controller, session: u.primary)
-                            }
-                        }
+                ForEach(groups.filter { $0.title == "Needs you" }) { groupView($0) }
+                if !cards.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("JUST FINISHED")
+                            .font(.system(size: 9.5, weight: .bold)).tracking(0.5)
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 12)
+                        ForEach(cards) { FinishedCard(model: model, controller: controller, session: $0) }
                     }
+                    .padding(.bottom, 2)
                 }
+                ForEach(groups.filter { $0.title != "Needs you" }) { groupView($0) }
             }
             .padding(.bottom, 6)
+        }
+    }
+
+    private func groupView(_ g: AppModel.Group) -> some View {
+        VStack(alignment: .leading, spacing: model.settings.homeDetailed ? 2 : 0) {
+            HStack(spacing: 5) {
+                Text(g.title.uppercased()).fontWeight(.bold)
+                Text("\(g.units.count)")
+            }
+            .font(.system(size: 9.5))
+            .tracking(0.5)
+            .foregroundStyle(g.title == "Needs you" ? Color.orange : .secondary)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 1)
+            ForEach(g.units) { u in
+                if u.isProject {
+                    SessionRowView(model: model, controller: controller, session: u.primary, unit: u)
+                } else {
+                    SessionRowView(model: model, controller: controller, session: u.primary)
+                }
+            }
         }
     }
 
@@ -442,9 +487,9 @@ struct ExpandedView: View {
         let text = t.working + t.waiting < 60 ? "No agent time yet today"
             : "\(shortDuration(t.working)) agent time · \(shortDuration(t.waiting)) waiting on you"
         return HStack(spacing: 6) {
-            Button { model.actions.openDashboard() } label: { Text(text).lineLimit(1) }
+            Button { model.open(.today) } label: { Text(text).lineLimit(1) }
                 .buttonStyle(.plain)
-                .help("Open the dashboard")
+                .help("See where today's time went")
             Spacer(minLength: 4)
             if model.settings.hotkeysEnabled {
                 Keycap(text: model.settings.findShortcut.display)
@@ -472,6 +517,8 @@ struct SessionRowView: View {
     @State private var hovering = false
 
     private var expanded: Bool { unit.map { model.expandedProjects.contains($0.id) } ?? false }
+    /// Simple: one line per session (plus why it waits). Detailed: agent, app and the latest line too.
+    private var detailed: Bool { model.settings.homeDetailed }
 
     var body: some View {
         let state = model.displayState(session)
@@ -492,7 +539,7 @@ struct SessionRowView: View {
                     .accessibilityLabel(expanded ? "Collapse \(session.projectName)" : "Show sessions in \(session.projectName)")
                 }
                 StateDot(state: state, halo: true)
-                ForEach(agents, id: \.self) { AgentBadge(agent: $0) }
+                if detailed { ForEach(agents, id: \.self) { AgentBadge(agent: $0) } }
                 Text(session.projectName)
                     .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1)
@@ -508,11 +555,14 @@ struct SessionRowView: View {
                         .layoutPriority(-1)
                 }
                 if let unit { SessionDots(states: unit.sessions.map(model.displayState)) }
-                if let host = hostsLabel { SourceChip(label: host) }
+                if detailed, let host = hostsLabel { SourceChip(label: host) }
                 if model.isMuted(session) {
                     Image(systemName: "bell.slash").font(.system(size: 9)).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 4)
+                if model.settings.showContextGauge, let f = model.contextFraction(session) {
+                    ContextGauge(fraction: f, tokens: model.context[session.id]?.tokens, window: model.contextWindow(session))
+                }
                 if hovering {
                     Button { model.detailID = session.id } label: {
                         Image(systemName: "info.circle").font(.system(size: 12))
@@ -529,8 +579,10 @@ struct SessionRowView: View {
                         .fixedSize()
                 }
             }
-            subtitle(state)
-                .padding(.leading, 14)
+            if detailed || waiting || state == .stale || (state == .idle && session.error != nil) {
+                subtitle(state)
+                    .padding(.leading, 14)
+            }
             if let unit, expanded {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(unit.sessions) { s in ProjectSessionRow(model: model, controller: controller, session: s) }
@@ -539,7 +591,7 @@ struct SessionRowView: View {
                 .overlay(alignment: .leading) {
                     Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1).padding(.leading, 8)
                 }
-            } else if unit == nil {
+            } else if unit == nil && detailed {
             ForEach(session.sortedSubagents) { sub in
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.turn.down.right").font(.system(size: 8)).foregroundStyle(.tertiary)
@@ -558,7 +610,7 @@ struct SessionRowView: View {
         }
         .opacity(state == .ended ? 0.5 : 1)
         .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.vertical, detailed || waiting ? 6 : 4)
         .background(background(waiting), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
             .strokeBorder(selected ? Color.accentColor : waiting ? Color.orange.opacity(0.35) : .clear,
@@ -569,7 +621,7 @@ struct SessionRowView: View {
         .onTapGesture {
             if controller?.didDrag != true {
                 model.endSearch()
-                Focuser.focus(session)
+                model.jump(session)
             }
         }
         .contextMenu { SessionMenu(model: model, session: session) }
@@ -680,7 +732,7 @@ struct SessionMenu: View {
 
     var body: some View {
         Button("Show Details") { model.detailID = session.id }
-        Button("Bring to Front") { Focuser.focus(session) }
+        Button("Bring to Front") { model.jump(session) }
         Button("Open Folder in Finder") { Focuser.openFolder(session) }
         Divider()
         if let cmd = session.resumeCommand {
@@ -788,6 +840,22 @@ struct SessionDetailView: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 12) {
             stats
+            if let d = session.lastTurnDuration, [.idle, .ended].contains(model.displayState(session)) {
+                section("Last task") {
+                    Text("Took \(longDuration(d))" + (session.turnSummary.map { " · " + $0 } ?? " · no edits or commands"))
+                        .font(.system(size: 11.5))
+                    if let t = session.turnTest {
+                        Label {
+                            Text(t.command).font(.system(size: 10.5, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+                        } icon: {
+                            Image(systemName: t.passed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundStyle(t.passed ? Color.green : .red)
+                        }
+                        .font(.system(size: 11))
+                        .help(t.passed ? "The last test run passed" : "The last test run failed")
+                    }
+                }
+            }
             if !session.subagents.isEmpty {
                 section("Subagents") {
                     ForEach(session.sortedSubagents) { sub in
@@ -875,7 +943,7 @@ struct SessionDetailView: View {
 
     private var actions: some View {
         HStack(spacing: 6) {
-            Button("Jump to \(session.hostLabel ?? "Session")") { Focuser.focus(session) }
+            Button("Jump to \(session.hostLabel ?? "Session")") { model.jump(session) }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
             if let cmd = session.resumeCommand {
@@ -948,7 +1016,7 @@ struct SearchField: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(.secondary)
-            TextField("Find a session…", text: Binding(get: { model.query }, set: { model.query = $0; model.searchSelection = 0 }))
+            TextField("Find a session or project…", text: Binding(get: { model.query }, set: { model.query = $0; model.searchSelection = 0 }))
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .focused($focused)
@@ -958,7 +1026,7 @@ struct SearchField: View {
                 .onKeyPress(.escape) { model.endSearch(); return .handled }
                 .onKeyPress(characters: .decimalDigits) { press in
                     guard press.modifiers.contains(.command), let n = Int(press.characters), n >= 1,
-                          n <= model.searchResults.count else { return .ignored }
+                          n <= model.paletteItems.count else { return .ignored }
                     model.searchSelection = n - 1
                     jump()
                     return .handled
@@ -975,17 +1043,15 @@ struct SearchField: View {
     }
 
     private func move(_ d: Int) {
-        let n = model.searchResults.count
+        let n = model.paletteItems.count
         guard n > 0 else { return }
         model.searchSelection = max(0, min(n - 1, model.searchSelection + d))
     }
 
     private func jump() {
-        let rows = model.searchResults
-        guard !rows.isEmpty else { return }
-        let s = rows[min(model.searchSelection, rows.count - 1)]
-        model.endSearch()
-        Focuser.focus(s)
+        let items = model.paletteItems
+        guard !items.isEmpty else { return }
+        model.activate(items[min(model.searchSelection, items.count - 1)])
     }
 }
 
@@ -1061,7 +1127,7 @@ struct ProjectSessionRow: View {
         .background(hovering ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .onTapGesture { if controller?.didDrag != true { Focuser.focus(session) } }
+        .onTapGesture { if controller?.didDrag != true { model.jump(session) } }
         .contextMenu { SessionMenu(model: model, session: session) }
         .help(session.cwd ?? "")
     }
@@ -1092,5 +1158,302 @@ struct ProjectSessionRow: View {
         case .running: return d
         default: return "\(state.verb) \(d)"
         }
+    }
+}
+
+// MARK: - Context gauge
+
+/// How full a session's context is: a small ring, orange with the percentage once it passes 80%.
+struct ContextGauge: View {
+    let fraction: Double
+    var tokens: Int?
+    var window: Int?
+
+    var body: some View {
+        let hot = fraction >= 0.8
+        HStack(spacing: 3) {
+            ZStack {
+                Circle().stroke(Color.primary.opacity(0.15), lineWidth: 2)
+                Circle().trim(from: 0, to: max(0.03, fraction))
+                    .stroke(hot ? Color.orange : Color.secondary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 11, height: 11)
+            if hot {
+                Text("\(Int(fraction * 100))%").font(.system(size: 10, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.orange)
+            }
+        }
+        .fixedSize()
+        .help(helpText)
+        .accessibilityLabel("Context \(Int(fraction * 100)) percent full")
+    }
+
+    private var helpText: String {
+        var s = "Context \(Int(fraction * 100))% full"
+        if let tokens, let window { s += ": \(tokens.formatted()) of \(window.formatted()) tokens" }
+        return s + (fraction >= 0.8 ? ". The agent compacts the conversation near the limit, so this is a good point to wrap up." : "")
+    }
+}
+
+// MARK: - Palette
+
+/// A palette line that isn't a live session: start a new session in a project, or resume a conversation.
+struct PaletteActionRow: View {
+    let model: AppModel
+    let item: PaletteItem
+    var selected = false
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: icon).font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                .frame(width: 14)
+            VStack(alignment: .leading, spacing: 1) {
+                title.font(.system(size: 12)).lineLimit(1).truncationMode(.tail)
+                if let sub = subtitle {
+                    Text(sub).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 4)
+            SourceChip(label: hostLabel)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(hovering ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 1.5))
+        .padding(.horizontal, 4)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture { model.activate(item) }
+        .contextMenu {
+            if case .resume(let r, _) = item {
+                Button("Copy Resume Command") {
+                    copy("cd \(Launcher.quote(r.launchDir ?? r.root)) && \(Launcher.shellCommand(agent: r.agent, sessionId: r.sessionId))")
+                }
+                Button("Copy Session ID") { copy(r.sessionId) }
+            }
+        }
+    }
+
+    private var icon: String {
+        if case .resume = item { return "arrow.counterclockwise" }
+        return "plus"
+    }
+
+    private var title: Text {
+        switch item {
+        case .start(_, let name, _): Text("New Claude session in ") + Text(name).fontWeight(.semibold)
+        case .resume(let r, _): Text(r.title ?? "\(r.agent.displayName) conversation from \(r.start.formatted(.dateTime.month(.abbreviated).day().hour().minute()))")
+        case .session(let s): Text(s.projectName)
+        }
+    }
+
+    private var subtitle: String? {
+        guard case .resume(let r, _) = item else { return nil }
+        let when = r.end.formatted(.relative(presentation: .named))
+        return "\(r.agent.displayName) · \(r.project) · \(when) · \(shortDuration(r.active)) active"
+    }
+
+    private var hostLabel: String {
+        switch item {
+        case .start(_, _, let h), .resume(_, let h): h == .automatic ? "Terminal" : h.title
+        case .session(let s): s.hostLabel ?? ""
+        }
+    }
+}
+
+// MARK: - Simple / Detailed
+
+/// The list's density, set right from its header and remembered.
+struct DensityToggle: View {
+    @Bindable var settings: AppSettings
+    /// One button that flips between the two, for narrow panels.
+    var compact = false
+
+    var body: some View {
+        if compact {
+            Button { settings.homeDetailed.toggle() } label: {
+                Image(systemName: settings.homeDetailed ? "list.bullet.below.rectangle" : "list.bullet")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 24, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help(settings.homeDetailed ? "Detailed: click for Simple" : "Simple: click for Detailed")
+            .accessibilityLabel(settings.homeDetailed ? "Switch to simple list" : "Switch to detailed list")
+        } else {
+            segments
+        }
+    }
+
+    private var segments: some View {
+        HStack(spacing: 0) {
+            segment("Simple", on: !settings.homeDetailed) { settings.homeDetailed = false }
+            segment("Detailed", on: settings.homeDetailed) { settings.homeDetailed = true }
+        }
+        .padding(2)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .fixedSize()
+    }
+
+    private func segment(_ title: String, on: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(on ? Color.primary.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(on ? .primary : .secondary)
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .help(title == "Simple" ? "One line per session" : "Show each session's agent, app and latest line")
+    }
+}
+
+// MARK: - Just finished
+
+/// A turn that just finished: a card for two minutes (the bar shows how long is left), or until ×.
+struct FinishedCard: View {
+    let model: AppModel
+    var controller: PanelController? = nil
+    let session: Session
+    @State private var hovering = false
+
+    var body: some View {
+        let detailed = model.settings.homeDetailed
+        let left = model.cardTimeLeft(session)
+        let failed = session.error != nil
+        let tint = failed ? Color.red : Color.accentColor
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Circle().fill(tint).frame(width: 8, height: 8)
+                    .background(Circle().fill(tint.opacity(0.25)).padding(-3))
+                Text(session.projectName).font(.system(size: 12.5, weight: .bold)).lineLimit(1).truncationMode(.middle)
+                    .layoutPriority(1)
+                if let sub = session.subpath {
+                    Text("› " + sub).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                        .layoutPriority(-1)
+                }
+                Spacer(minLength: 4)
+                // Gives way in a narrow panel: first the agent and app, then the long time label.
+                ViewThatFits(in: .horizontal) {
+                    trailing(chips: true, long: true)
+                    trailing(chips: false, long: true)
+                    trailing(chips: false, long: false)
+                }
+                Button { withAnimation(.easeOut(duration: 0.2)) { model.clearFinished(session.id) } } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8.5, weight: .bold))
+                        .frame(width: 18, height: 18)
+                        .background(Color.primary.opacity(hovering ? 0.12 : 0.07), in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Clear: move it to Idle now")
+                .accessibilityLabel("Clear \(session.projectName) from Just finished")
+            }
+            if let text = failed ? session.error : (session.lastMessage ?? session.title) {
+                Text(text)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.primary.opacity(0.9))
+                    .lineLimit(detailed ? 4 : 2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if detailed, let recap = recap {
+                Text(recap).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(tint.opacity(0.2))
+                    Capsule().fill(tint)
+                        .frame(width: geo.size.width * left / AppModel.cardLifetime)
+                        .animation(.linear(duration: 1), value: left)
+                }
+            }
+            .frame(height: 3)
+            .padding(.top, 2)
+            .help("Moves to Idle when the bar runs out")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(tint.opacity(0.12 + (hovering ? 0.05 : 0)), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(tint.opacity(0.45)))
+        .padding(.horizontal, 6)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture { if controller?.didDrag != true { model.jump(session) } }
+        .contextMenu { SessionMenu(model: model, session: session) }
+        .help("Click to open")
+    }
+
+    private func trailing(chips: Bool, long: Bool) -> some View {
+        HStack(spacing: 6) {
+            if chips {
+                if model.settings.homeDetailed { AgentBadge(agent: session.agent) }
+                if let host = session.hostLabel { SourceChip(label: host) }
+            }
+            Text(timeLabel(long: long))
+                .font(.system(size: 10.5, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.primary.opacity(0.8))
+                .lineLimit(1)
+                .fixedSize()
+        }
+    }
+
+    private func timeLabel(long: Bool) -> String {
+        let since = shortDuration(model.now.timeIntervalSince(model.finishedAt[session.id] ?? session.stateSince))
+        guard long else { return since }
+        return (session.error != nil ? "failed " : "finished ") + since + " ago"
+    }
+
+    private var recap: String? {
+        let took = session.lastTurnDuration.flatMap { $0 >= 1 ? "Took \(shortDuration($0))" : nil }
+        let parts = [took, session.turnSummary.map { $0.prefix(1).lowercased() + $0.dropFirst() }].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - Menu
+
+/// Find, Today's time, Dashboard and Settings, behind one button in the header.
+struct PanelMenu: View {
+    let model: AppModel
+    var showLabel = true
+    @State private var hovering = false
+
+    var body: some View {
+        Menu {
+            Button {
+                if model.searching { model.endSearch() } else { model.beginSearch(); model.actions.focusPanel() }
+            } label: {
+                Label("Find a Session  \(model.settings.findShortcut.display)", systemImage: "magnifyingglass")
+            }
+            Button { model.open(.today) } label: { Label("Today's Time", systemImage: "clock") }
+            Button { model.actions.openDashboard() } label: { Label("Dashboard", systemImage: "chart.bar.xaxis") }
+            Divider()
+            Button { model.openSettings() } label: { Label("Settings…", systemImage: "gearshape") }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "line.3.horizontal").font(.system(size: 11, weight: .semibold))
+                if showLabel { Text("Menu").font(.system(size: 11, weight: .semibold)) }
+            }
+            .padding(.horizontal, showLabel ? 7 : 5)
+            .frame(height: 22)
+            .background(Color.primary.opacity(hovering ? 0.10 : 0.06), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .foregroundStyle(.secondary)
+        .onHover { hovering = $0 }
+        .help("Find, today's time, dashboard and settings")
+        .accessibilityLabel("Menu")
     }
 }

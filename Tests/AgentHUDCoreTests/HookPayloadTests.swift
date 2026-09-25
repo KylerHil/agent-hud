@@ -77,4 +77,9 @@ final class HookPayloadTests: XCTestCase {
         ], agent: .claude, eventOverride: nil)
         XCTAssertEqual(e.prompt, "fix the build")
     }
+
+    func testPastedContentKeepsItsTextWithoutTheTags() {
+        XCTAssertEqual(HookPayload.stripContextTags("<pasted_content id=\"c1\">\nfix this\n</pasted_content id=\"c1\"> please"),
+                       "fix this\n please")
+    }
 }

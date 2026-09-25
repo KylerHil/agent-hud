@@ -2,39 +2,32 @@ import AgentHUDCore
 import Foundation
 import Observation
 
-/// The panel's filter tabs.
-enum PanelFilter: String, CaseIterable {
-    case all, needs, working, idle
-
-    var title: String {
-        switch self {
-        case .all: "All"
-        case .needs: "You"
-        case .working: "Busy"
-        case .idle: "Idle"
-        }
-    }
-
-    func includes(_ state: SessionState) -> Bool {
-        switch self {
-        case .all: true
-        case .needs: state == .needsInput
-        case .working: state == .running || state == .stale
-        case .idle: state == .idle || state == .unknown || state == .ended
-        }
-    }
-}
-
 /// What the panel is showing. Everything lives in the one panel; nothing opens a window of its own.
 enum PanelMode: Equatable {
-    case list, dashboard, settings
+    case list, today, dashboard, settings
 
     /// The dashboard and settings are roomier than the list, so the panel grows for them.
-    var isLarge: Bool { self != .list }
+    var isLarge: Bool { self == .dashboard || self == .settings }
 }
 
 enum SettingsTab: Hashable {
-    case general, sources, notifications, hooks
+    case general, sources, notifications, permissions, hooks
+}
+
+/// One line in the ⌃⌥Space palette: a live session to jump to, a project to start a session in, or an
+/// earlier conversation to resume.
+enum PaletteItem: Identifiable {
+    case session(Session)
+    case start(root: String, name: String, host: Launcher.Host)
+    case resume(HistoryReport.SessionRow, host: Launcher.Host)
+
+    var id: String {
+        switch self {
+        case .session(let s): "session:" + s.id
+        case .start(let root, _, _): "start:" + root
+        case .resume(let r, _): "resume:" + r.id
+        }
+    }
 }
 
 /// Glue between the event log, the state machine, and the UI.
@@ -48,6 +41,10 @@ final class AppModel {
 
     /// Session shown in the panel's detail view, if any.
     var detailID: String?
+
+    /// Sessions that just finished a turn (id → when), shown as cards above the list for `cardLifetime`.
+    private(set) var finishedAt: [String: Date] = AppModel.loadDates("justFinished")
+    static let cardLifetime: TimeInterval = 120
     var mode: PanelMode = .list
     var settingsTab: SettingsTab = .general
     /// Search over the list (⌃⌥Space or the magnifying glass): typing filters, ↑↓ selects, Return jumps.
@@ -63,6 +60,14 @@ final class AppModel {
     /// Sessions whose notifications are muted until the app quits.
     private(set) var muted: Set<String> = []
     private(set) var context: [String: TranscriptProbe.ContextUsage] = [:]
+    /// The most context each session has used, which tells a 1M-token Claude window from a 200K one.
+    @ObservationIgnored private var contextPeak: [String: Int] = [:]
+    @ObservationIgnored private var contextProbed: Set<String> = []
+    @ObservationIgnored private var longContextModels: Set<String> = []
+    /// Approved permission prompts, and the allow rules they add up to.
+    @ObservationIgnored let permissions = PermissionTally()
+    private(set) var suggestions: [PermissionSuggestion] = []
+    @ObservationIgnored private var suggestionsStale = true
 
     /// Called for live (not replayed) state changes. Wired to notifications.
     @ObservationIgnored var onTransition: ((Transition, Session) -> Void)?
@@ -101,6 +106,15 @@ final class AppModel {
         mode = m
     }
 
+    /// Opens the panel on a session's detail view (from a notification's Show Details).
+    func showDetail(_ s: Session) {
+        searching = false
+        mode = .list
+        settings.collapsed = false
+        detailID = s.id
+        actions.showPanel()
+    }
+
     func beginSearch() {
         detailID = nil
         mode = .list
@@ -108,6 +122,7 @@ final class AppModel {
         query = ""
         searchSelection = 0
         searching = true
+        history.refreshIfOlder(than: 120)
     }
 
     func endSearch() {
@@ -124,6 +139,134 @@ final class AppModel {
             [s.projectName, s.subpath, s.title, s.hostLabel, s.agent.displayName, s.cwd].compactMap { $0?.lowercased() }
                 .contains { $0.contains(q) }
         }
+    }
+
+    /// The palette: matching live sessions, then (once you type) projects to start a session in and earlier
+    /// conversations to resume, newest first.
+    var paletteItems: [PaletteItem] {
+        let live = searchResults.map(PaletteItem.session)
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return live }
+        let recent = history.recent
+        var projects: [String: (name: String, last: Date)] = [:]
+        for p in recent?.projects ?? [] where p.root != "(unknown)" { projects[p.root] = (p.name, p.last) }
+        for s in store.sessions.values where !s.isChat {
+            guard let root = s.root, root != "/" else { continue }
+            let last = max(projects[root]?.last ?? .distantPast, s.lastEventAt)
+            projects[root] = (projects[root]?.name ?? s.projectName, last)
+        }
+        let starts = projects.filter { $0.value.name.lowercased().contains(q) }
+            .sorted { $0.value.last > $1.value.last }.prefix(3)
+            .map { PaletteItem.start(root: $0.key, name: $0.value.name, host: launchHost(root: $0.key)) }
+        let liveIDs = Set(store.sessions.values.filter { $0.state != .ended }.map(\.sessionId))
+        let resumes = (recent?.sessions ?? []).filter { r in
+            r.root != "(unknown)" && !liveIDs.contains(r.sessionId) && r.active > 0
+                && ((r.title?.lowercased().contains(q) ?? false) || r.project.lowercased().contains(q))
+        }
+        .sorted { $0.end > $1.end }.prefix(6)
+        .map { r in PaletteItem.resume(r, host: resumeHost(r)) }
+        return live + starts + resumes
+    }
+
+    func activate(_ item: PaletteItem) {
+        endSearch()
+        switch item {
+        case .session(let s): jump(s)
+        case .start(let root, _, let host):
+            Launcher.open(agent: .claude, dir: root, sessionId: nil, host: host, terminal: preferredTerminal)
+        case .resume(let r, let host):
+            Launcher.open(agent: r.agent, dir: r.launchDir ?? r.root, sessionId: r.sessionId, host: host,
+                          terminal: preferredTerminal)
+        }
+    }
+
+    /// The app to start a session in for `root`: the setting, else where the project was last used.
+    func launchHost(root: String) -> Launcher.Host {
+        if let h = Launcher.Host(rawValue: settings.launchHost), h != .automatic { return h }
+        let live = store.sessions.values.filter { $0.root == root }.sorted { $0.lastEventAt > $1.lastEventAt }
+        if let h = live.lazy.compactMap({ Launcher.Host(hostKind: $0.hostKind) }).first { return h }
+        let past = (history.recent?.sessions ?? []).filter { $0.root == root }.sorted { $0.end > $1.end }
+        if let h = past.lazy.compactMap({ Launcher.Host(entrypoint: $0.entrypoint) }).first {
+            return h == .terminal ? preferredTerminal : h
+        }
+        return preferredTerminal
+    }
+
+    /// A conversation reopens where it ran (an editor, or your terminal), unless the setting says otherwise.
+    func resumeHost(_ r: HistoryReport.SessionRow) -> Launcher.Host {
+        // Only Claude has an editor link; other agents reopen in your terminal.
+        if r.agent != .claude { return preferredTerminal }
+        if let h = Launcher.Host(rawValue: settings.launchHost), h != .automatic { return h }
+        switch Launcher.Host(entrypoint: r.entrypoint) {
+        case .vscode?: return .vscode
+        case .terminal?: return preferredTerminal
+        default: return launchHost(root: r.root)
+        }
+    }
+
+    /// The terminal you use most recently: the host of the latest terminal session, else Terminal.
+    var preferredTerminal: Launcher.Host {
+        store.sessions.values.sorted { $0.lastEventAt > $1.lastEventAt }.lazy
+            .compactMap { Launcher.Host(hostKind: $0.hostKind) }.first { !$0.isEditor } ?? .terminal
+    }
+
+    // MARK: Allowlist suggestions
+
+    /// The list's suggestion banner stays hidden until a suggestion you haven't hidden it for appears.
+    var suggestionBannerHidden: Bool {
+        _ = bannerTick
+        let seen = Set(UserDefaults.standard.stringArray(forKey: "suggestionBannerSeen") ?? [])
+        return suggestions.allSatisfy { seen.contains($0.id) }
+    }
+
+    func hideSuggestionBanner() {
+        UserDefaults.standard.set(suggestions.map(\.id), forKey: "suggestionBannerSeen")
+        bannerTick += 1
+    }
+
+    /// Bumped to redraw the list when the banner is hidden (the seen set lives in UserDefaults).
+    private(set) var bannerTick = 0
+
+    func refreshSuggestions() {
+        suggestionsStale = false
+        permissions.save()
+        let next = permissions.suggestions(dismissed: settings.dismissedSuggestions)
+        if next != suggestions { suggestions = next }
+    }
+
+    func accept(_ s: PermissionSuggestion) throws {
+        try PermissionRules.add(s.rule, root: s.root)
+        refreshSuggestions()
+    }
+
+    func dismissSuggestion(_ s: PermissionSuggestion) {
+        settings.dismissedSuggestions.insert(s.id)
+        refreshSuggestions()
+    }
+
+    // MARK: Context
+
+    /// Bumped when the known 1M models change, so rows redraw.
+    private(set) var contextTick = 0
+
+    /// How full a session's context is, 0–1, when it can be told.
+    func contextFraction(_ s: Session) -> Double? {
+        _ = contextTick
+        guard s.state != .ended, let u = context[s.id] else { return nil }
+        if let f = u.fraction { return f }
+        guard s.agent == .claude, let w = contextWindow(s) else { return nil }
+        return min(1, Double(u.tokens) / Double(w))
+    }
+
+    func contextWindow(_ s: Session) -> Int? {
+        guard let u = context[s.id] else { return nil }
+        if let w = u.window { return w }
+        guard s.agent == .claude else { return nil }
+        if settings.claudeContextWindow > 0 { return settings.claudeContextWindow }
+        // Past 200K it can only be the 1M window; otherwise it's 1M if that's how you run this model.
+        if max(u.tokens, contextPeak[s.id] ?? 0) > 200_000 { return 1_000_000 }
+        if let m = u.model, longContextModels.contains(m) { return 1_000_000 }
+        return 200_000
     }
 
     func refreshLegacyHooks() {
@@ -145,8 +288,10 @@ final class AppModel {
     func ingest(_ events: [AgentEvent], replay: Bool) {
         // Hooks run async, so two near-simultaneous events can land out of order; their timestamps don't.
         for e in events.sorted(by: { $0.ts < $1.ts }) {
+            if permissions.observe(e) { suggestionsStale = true }
             guard let tr = store.apply(e), let s = store.sessions[tr.sessionID] else { continue }
             activity.record(tr, session: s)
+            trackFinished(tr, replay: replay)
             // Replayed history and events that are old news should update state silently.
             if !replay, Date().timeIntervalSince(e.date) < 60, isShown(s) {
                 onTransition?(tr, s)
@@ -174,7 +319,14 @@ final class AppModel {
         store.prune(now: now, endedRetention: settings.endedRetention)
         if tickCount % 600 == 0 { activity.prune(before: now.addingTimeInterval(-36 * 3600)) }
         if tickCount % 30 == 1 { refreshLegacyHooks() }
+        if suggestionsStale || tickCount % 300 == 2 { refreshSuggestions() }
+        if tickCount % 300 == 3 {
+            let models = TranscriptProbe.longContextModels()
+            if models != longContextModels { longContextModels = models; contextTick += 1 }
+        }
+        if tickCount % 300 == 150 { history.refreshIfOlder(than: 240) }
         if detailID.map({ store.sessions[$0] == nil }) == true { detailID = nil }
+        pruneFinished()
         onTick?()
     }
 
@@ -208,8 +360,14 @@ final class AppModel {
     /// Every few seconds, for running sessions: note transcript growth, refresh context use,
     /// and catch Claude's silent Esc-interrupts.
     private func probeTranscripts() {
-        for s in store.sessions.values where s.state == .running || s.id == detailID {
+        for s in store.sessions.values where s.state == .running || s.id == detailID || !contextProbed.contains(s.id) {
             guard let path = s.transcriptPath else { continue }
+            // Idle sessions are read once, so their rows can show context too.
+            if s.state != .running && s.id != detailID {
+                contextProbed.insert(s.id)
+                refreshContext(s)
+                continue
+            }
             if let last = lastProbe[s.id], now.timeIntervalSince(last) < 5 { continue }
             lastProbe[s.id] = now
             if let m = TranscriptProbe.modificationDate(path), m != lastOutput[s.id] {
@@ -230,6 +388,7 @@ final class AppModel {
 
     func refreshContext(_ s: Session) {
         guard let path = s.transcriptPath, let usage = TranscriptProbe.contextUsage(path, agent: s.agent) else { return }
+        contextPeak[s.id] = max(contextPeak[s.id] ?? 0, usage.tokens)
         if context[s.id] != usage { context[s.id] = usage }
     }
 
@@ -241,10 +400,22 @@ final class AppModel {
 
     /// Whether the Sources settings let this session show anywhere (panel, menu bar, notifications).
     func isShown(_ s: Session) -> Bool {
+        guard kindShown(s) else { return false }
         if s.isChat { return settings.watchChats }
         switch s.hostKind {
         case "claude-desktop": return settings.watchClaudeDesktop
         case "chatgpt", "codex-desktop": return settings.watchChatGPT
+        default: return true
+        }
+    }
+
+    /// The General settings' "Show sessions from" toggles. Sessions with no known host always show.
+    private func kindShown(_ s: Session) -> Bool {
+        if s.isChat || s.isDesktop { return settings.showAppSessions }
+        switch s.hostKind {
+        case "tmux": return settings.showTmuxSessions
+        case "vscode", "cursor", "windsurf": return settings.showEditorSessions
+        case "terminal", "iterm", "ghostty", "warp", "wezterm": return settings.showTerminalSessions
         default: return true
         }
     }
@@ -257,11 +428,6 @@ final class AppModel {
     /// Every session the panel may list, before the filter tab.
     var rows: [Session] {
         sorted.filter { settings.showIdle || ![.idle, .unknown].contains(displayState($0)) }
-    }
-
-    var filter: PanelFilter {
-        get { PanelFilter(rawValue: settings.panelFilter) ?? .all }
-        set { settings.panelFilter = newValue.rawValue }
     }
 
     /// One row of the list: a single session, or (with "Group sessions by project") every session in a
@@ -287,14 +453,16 @@ final class AppModel {
 
     /// Every row the panel may list, before the filter tab.
     var units: [Unit] {
-        settings.groupByProject ? projectUnits(rows) : rows.map { Unit(id: $0.id, sessions: [$0]) }
+        // Just-finished sessions show as cards above the list instead.
+        let listed = rows.filter { !isJustFinished($0) }
+        return settings.groupByProject ? projectUnits(listed) : listed.map { Unit(id: $0.id, sessions: [$0]) }
     }
 
     func state(_ u: Unit) -> SessionState { displayState(u.primary) }
 
     /// Needs you / Working / Idle, after the filter tab; empty groups dropped.
     var groups: [Group] {
-        let units = units.filter { filter.includes(state($0)) }
+        let units = units
         let defs: [(String, (SessionState) -> Bool)] = [
             ("Needs you", { $0 == .needsInput }),
             ("Working", { $0 == .running || $0 == .stale }),
@@ -350,6 +518,73 @@ final class AppModel {
         guard !hidden.isEmpty else { return summary }
         return ActivitySummary(lanes: summary.lanes.filter { !hidden.contains($0.sessionID) },
                                waits: summary.waits, projects: summary.projects)
+    }
+
+    // MARK: Just finished
+
+    func jump(_ s: Session) { Focuser.focus(s) }
+
+    /// The card's ×: straight to Idle.
+    func clearFinished(_ id: String) {
+        guard finishedAt[id] != nil else { return }
+        finishedAt[id] = nil
+        saveFinished()
+    }
+
+    /// Finished its turn less than `cardLifetime` ago and hasn't started another.
+    func isJustFinished(_ s: Session) -> Bool {
+        guard let f = finishedAt[s.id], displayState(s) == .idle else { return false }
+        return now.timeIntervalSince(f) < Self.cardLifetime
+    }
+
+    /// Seconds before a session's card leaves.
+    func cardTimeLeft(_ s: Session) -> TimeInterval {
+        max(0, Self.cardLifetime - now.timeIntervalSince(finishedAt[s.id] ?? .distantPast))
+    }
+
+    /// Cards, newest first.
+    var finishedCards: [Session] {
+        rows.filter(isJustFinished).sorted { (finishedAt[$0.id] ?? .distantPast) > (finishedAt[$1.id] ?? .distantPast) }
+    }
+
+    /// Only a turn finishing while the app watches makes a card; replayed history can only clear one
+    /// (a session that went back to work after its card was made).
+    private func trackFinished(_ tr: Transition, replay: Bool) {
+        let id = tr.sessionID
+        switch tr.to {
+        case .idle where !replay && (tr.from == .running || tr.from == .needsInput):
+            finishedAt[id] = tr.at
+            saveFinished()
+        case .running, .needsInput, .ended:
+            guard let f = finishedAt[id], tr.at > f else { return }
+            finishedAt[id] = nil
+            saveFinished()
+        default:
+            break
+        }
+    }
+
+    private func pruneFinished() {
+        let gone = finishedAt.keys.filter { id in
+            guard let s = store.sessions[id] else { return true }
+            return s.state == .ended || now.timeIntervalSince(finishedAt[id]!) >= Self.cardLifetime
+        }
+        guard !gone.isEmpty else { return }
+        for id in gone { finishedAt[id] = nil }
+        saveFinished()
+    }
+
+    private func saveFinished() {
+        UserDefaults.standard.set(finishedAt.mapValues(\.timeIntervalSince1970), forKey: "justFinished")
+    }
+
+    private static func loadDates(_ key: String) -> [String: Date] {
+        ((UserDefaults.standard.dictionary(forKey: key) as? [String: Double]) ?? [:]).mapValues { Date(timeIntervalSince1970: $0) }
+    }
+
+    /// For `--snapshot`: show a session as having finished `ago` seconds back.
+    func markFinishedForSnapshot(_ id: String, ago: TimeInterval) {
+        finishedAt[id] = now.addingTimeInterval(-ago)
     }
 
     func dismiss(_ s: Session) {

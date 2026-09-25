@@ -144,7 +144,24 @@ public enum TranscriptProbe {
         public var tokens: Int
         /// Known for Codex (its logs record it); nil for Claude, whose window depends on the plan and model.
         public var window: Int?
+        /// The model that wrote the last reply (Claude), which tells whether it runs with the 1M window.
+        public var model: String? = nil
         public var fraction: Double? { window.map { $0 > 0 ? min(1, Double(tokens) / Double($0)) : 0 } }
+    }
+
+    /// Models you run with the 1M-token window. Transcripts only say `claude-opus-5-5`, but Claude Code's
+    /// per-project usage in ~/.claude.json names them `claude-opus-5-5[1m]`.
+    public static func longContextModels(stateFile: URL = Paths.claudeState) -> Set<String> {
+        guard let data = try? Data(contentsOf: stateFile),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let projects = obj["projects"] as? [String: Any] else { return [] }
+        var out = Set<String>()
+        for case let p as [String: Any] in projects.values {
+            for key in (p["lastModelUsage"] as? [String: Any])?.keys ?? [:].keys where key.hasSuffix("[1m]") {
+                out.insert(String(key.dropLast(4)))
+            }
+        }
+        return out
     }
 
     /// How much context the conversation is using, from the last usage record in the transcript.
@@ -157,7 +174,7 @@ public enum TranscriptProbe {
                       let msg = obj["message"] as? [String: Any], let u = msg["usage"] as? [String: Any] else { continue }
                 let n = ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
                     .reduce(0) { $0 + ((u[$1] as? Int) ?? 0) }
-                if n > 0 { return ContextUsage(tokens: n, window: nil) }
+                if n > 0 { return ContextUsage(tokens: n, window: nil, model: msg["model"] as? String) }
             case .codex:
                 guard line.contains("\"token_count\""),
                       let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],

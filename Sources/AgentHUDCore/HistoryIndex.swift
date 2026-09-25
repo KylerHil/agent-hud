@@ -31,6 +31,10 @@ public struct TranscriptRecord: Codable, Equatable, Sendable {
     /// The folder the session started in (Claude: from the transcript's project folder; Codex: session_meta).
     public var launchDir: String?
     public var model: String?
+    /// The conversation's name: one you gave it, else the one Claude generated.
+    public var title: String?
+    /// Where Claude ran it: `cli`, `claude-vscode`, `claude-desktop`.
+    public var entrypoint: String?
     /// Subagent transcripts share their parent's time; they add tokens, not hours.
     public var isSubagent = false
     /// Every event's time, in seconds since 1970, sorted and unique.
@@ -82,7 +86,7 @@ public final class HistoryIndex: @unchecked Sendable {
         var files: [String: Entry]
     }
 
-    static let version = 1
+    static let version = 2
     private let claudeRoot: URL
     private let codexRoot: URL
     private let indexFile: URL
@@ -159,10 +163,18 @@ public final class HistoryIndex: @unchecked Sendable {
         var r = TranscriptRecord(agent: .claude, sessionId: "", isSubagent: isSub)
         var cwd: String?
         var times: [Int] = []
+        var aiTitle: String?, customTitle: String?
         lines(data) { line in
+            // Title lines carry no timestamp; the last one of each kind wins.
+            if Bytes.hasPrefix(line, Bytes.aiTitleLine) || Bytes.hasPrefix(line, Bytes.customTitleLine) {
+                if let v = Bytes.string(line, key: Bytes.customTitle) { customTitle = v }
+                if let v = Bytes.string(line, key: Bytes.aiTitle) { aiTitle = v }
+                return
+            }
             guard let t = Bytes.timestamp(line) else { return }
             times.append(t)
             if cwd == nil { cwd = Bytes.string(line, key: Bytes.cwd) }
+            if r.entrypoint == nil { r.entrypoint = Bytes.string(line, key: Bytes.entrypoint) }
             if r.sessionId.isEmpty { r.sessionId = Bytes.string(line, key: Bytes.sessionId) ?? "" }
             guard Bytes.find(line, Bytes.assistant) != nil, let u = Bytes.find(line, Bytes.usage) else { return }
             let usage = UnsafeRawBufferPointer(rebasing: line[u...])
@@ -177,6 +189,7 @@ public final class HistoryIndex: @unchecked Sendable {
         }
         guard !times.isEmpty else { return nil }
         if r.sessionId.isEmpty { r.sessionId = url.deletingPathExtension().lastPathComponent }
+        r.title = (customTitle ?? aiTitle).flatMap { $0.isEmpty ? nil : $0.preview(80) }
         r.launchDir = cwd.map { ProjectRoot.launchDir(cwd: $0, encodedDir: encoded) }
         r.times = Array(Set(times)).sorted()
         return r
@@ -263,6 +276,15 @@ enum Bytes {
     static let turnContext = Array(#""type":"turn_context""#.utf8)
     static let tokenCount = Array(#""type":"token_count""#.utf8)
     static let totalUsage = Array(#""total_token_usage":{"#.utf8)
+    static let aiTitleLine = Array(#"{"type":"ai-title""#.utf8)
+    static let customTitleLine = Array(#"{"type":"custom-title""#.utf8)
+    static let aiTitle = Array(#""aiTitle":""#.utf8)
+    static let customTitle = Array(#""customTitle":""#.utf8)
+    static let entrypoint = Array(#""entrypoint":""#.utf8)
+
+    static func hasPrefix(_ line: UnsafeRawBufferPointer, _ prefix: [UInt8]) -> Bool {
+        line.count >= prefix.count && zip(line, prefix).allSatisfy { $0 == $1 }
+    }
 
     static func find(_ hay: UnsafeRawBufferPointer, _ needle: [UInt8]) -> Int? {
         guard let base = hay.baseAddress, hay.count >= needle.count else { return nil }
@@ -363,6 +385,10 @@ public struct HistoryReport: Sendable {
         public var active: TimeInterval
         public var tokens: TokenCounts
         public var model: String?
+        public var title: String?
+        public var entrypoint: String?
+        /// The folder it started in, which `--resume` needs.
+        public var launchDir: String?
     }
 
     public var active: TimeInterval
@@ -454,7 +480,8 @@ public struct HistoryReport: Sendable {
                               project: names[root] ?? root, root: root,
                               start: Date(timeIntervalSince1970: TimeInterval(first)),
                               end: Date(timeIntervalSince1970: TimeInterval(last)), active: active(t).total,
-                              tokens: sessionTokens[key] ?? TokenCounts(), model: r.model)
+                              tokens: sessionTokens[key] ?? TokenCounts(), model: r.model,
+                              title: r.title, entrypoint: r.entrypoint, launchDir: r.launchDir)
         }.sorted { $0.start > $1.start }
 
         return HistoryReport(active: overall.total, tokens: total, projects: projects, days: days, sessions: sessions)

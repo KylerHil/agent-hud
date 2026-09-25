@@ -19,8 +19,6 @@ final class AppSettings {
     /// 0 = never re-remind.
     var remindMinutes: Double { didSet { defaults.set(remindMinutes, forKey: "remindMinutes") } }
     var trackProcesses: Bool { didSet { defaults.set(trackProcesses, forKey: "trackProcesses") } }
-    /// Panel filter tab: all, needs, working, idle.
-    var panelFilter: String { didSet { defaults.set(panelFilter, forKey: "panelFilter") } }
     var watchClaudeDesktop: Bool { didSet { defaults.set(watchClaudeDesktop, forKey: "watchClaudeDesktop") } }
     var watchChatGPT: Bool { didSet { defaults.set(watchChatGPT, forKey: "watchChatGPT") } }
     /// Experimental: ordinary chats in Claude and ChatGPT, through Accessibility.
@@ -40,16 +38,36 @@ final class AppSettings {
     /// History: silences longer than this between transcript events don't count as active time.
     var idleGapMinutes: Double { didSet { defaults.set(idleGapMinutes, forKey: "idleGapMinutes") } }
     var dashboardRange: String { didSet { defaults.set(dashboardRange, forKey: "dashboardRange") } }
+    /// Finish notifications only for turns at least this long (0 = every turn).
+    var finishedMinMinutes: Double { didSet { defaults.set(finishedMinMinutes, forKey: "finishedMinMinutes") } }
+    var showContextGauge: Bool { didSet { defaults.set(showContextGauge, forKey: "showContextGauge") } }
+    /// Claude's context window in tokens; 0 = work it out (200K, or 1M once a session has used more than 200K).
+    var claudeContextWindow: Int { didSet { defaults.set(claudeContextWindow, forKey: "claudeContextWindow") } }
+    /// Where the palette starts new sessions (`Launcher.Host`).
+    var launchHost: String { didSet { defaults.set(launchHost, forKey: "launchHost") } }
+    /// The list's Simple / Detailed switch: Detailed adds each session's agent, app and latest line.
+    var homeDetailed: Bool { didSet { defaults.set(homeDetailed, forKey: "homeDetailed") } }
+    /// Which kinds of session the panel, menu bar and notifications show.
+    var showTerminalSessions: Bool { didSet { defaults.set(showTerminalSessions, forKey: "showTerminalSessions") } }
+    var showTmuxSessions: Bool { didSet { defaults.set(showTmuxSessions, forKey: "showTmuxSessions") } }
+    var showEditorSessions: Bool { didSet { defaults.set(showEditorSessions, forKey: "showEditorSessions") } }
+    var showAppSessions: Bool { didSet { defaults.set(showAppSessions, forKey: "showAppSessions") } }
+    /// Allowlist suggestions you turned down ("<root>|<rule>").
+    var dismissedSuggestions: Set<String> {
+        didSet { defaults.set(Array(dismissedSuggestions).sorted(), forKey: "dismissedSuggestions") }
+    }
 
     init() {
         defaults.register(defaults: [
             "opacity": 0.95, "collapsed": false, "panelVisible": true, "showIdle": true, "pulse": true,
             "staleMinutes": 15.0, "endedRetentionMinutes": 3.0,
             "notifyNeedsInput": true, "notifyFinished": false, "playSound": true, "remindMinutes": 0.0,
-            "trackProcesses": true, "panelFilter": "all", "watchClaudeDesktop": true, "watchChatGPT": true,
+            "trackProcesses": true, "watchClaudeDesktop": true, "watchChatGPT": true,
             "watchChats": false, "hotkeysEnabled": true, "pausedUntil": 0.0, "idleGapMinutes": 10.0,
             "dashboardRange": "today", "checkForUpdates": true, "groupByProject": false, "installUpdatesAutomatically": true,
-            "lastUpdateCheck": 0.0,
+            "lastUpdateCheck": 0.0, "finishedMinMinutes": 2.0, "showContextGauge": true, "claudeContextWindow": 0,
+            "launchHost": "automatic", "showTerminalSessions": true, "showTmuxSessions": true,
+            "showEditorSessions": true, "showAppSessions": true, "homeDetailed": false,
         ])
         opacity = defaults.double(forKey: "opacity")
         collapsed = defaults.bool(forKey: "collapsed")
@@ -63,7 +81,6 @@ final class AppSettings {
         playSound = defaults.bool(forKey: "playSound")
         remindMinutes = defaults.double(forKey: "remindMinutes")
         trackProcesses = defaults.bool(forKey: "trackProcesses")
-        panelFilter = defaults.string(forKey: "panelFilter") ?? "all"
         watchClaudeDesktop = defaults.bool(forKey: "watchClaudeDesktop")
         watchChatGPT = defaults.bool(forKey: "watchChatGPT")
         watchChats = defaults.bool(forKey: "watchChats")
@@ -77,6 +94,16 @@ final class AppSettings {
         pausedUntil = defaults.double(forKey: "pausedUntil")
         idleGapMinutes = defaults.double(forKey: "idleGapMinutes")
         dashboardRange = defaults.string(forKey: "dashboardRange") ?? "today"
+        finishedMinMinutes = defaults.double(forKey: "finishedMinMinutes")
+        showContextGauge = defaults.bool(forKey: "showContextGauge")
+        claudeContextWindow = defaults.integer(forKey: "claudeContextWindow")
+        launchHost = defaults.string(forKey: "launchHost") ?? "automatic"
+        homeDetailed = defaults.bool(forKey: "homeDetailed")
+        showTerminalSessions = defaults.bool(forKey: "showTerminalSessions")
+        showTmuxSessions = defaults.bool(forKey: "showTmuxSessions")
+        showEditorSessions = defaults.bool(forKey: "showEditorSessions")
+        showAppSessions = defaults.bool(forKey: "showAppSessions")
+        dismissedSuggestions = Set(defaults.stringArray(forKey: "dismissedSuggestions") ?? [])
     }
 
     var staleAfter: TimeInterval { staleMinutes * 60 }

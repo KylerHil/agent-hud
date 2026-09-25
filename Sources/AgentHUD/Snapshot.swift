@@ -11,6 +11,26 @@ enum Snapshot {
         let tailer = EventTailer { events, _ in MainActor.assumeIsolated { model.ingest(events, replay: true) } }
         tailer.start(interval: 3600)
         tailer.stop()
+        for s in model.rows { model.refreshContext(s) }
+        model.history.loadNow()
+        // Two just-finished cards: one fresh, one on its way out.
+        let idle = model.rows.filter { model.displayState($0) == .idle && $0.lastMessage != nil }
+        if idle.count > 1 {
+            model.markFinishedForSnapshot(idle[0].id, ago: 12)
+            model.markFinishedForSnapshot(idle[1].id, ago: 85)
+        }
+        for detailed in [false, true] {
+            model.settings.homeDetailed = detailed
+            render(ExpandedView(model: model, forSnapshot: true).frame(width: 360, height: 640).padding(12)
+                .background(Color(white: 0.12)).environment(\.colorScheme, .dark),
+                   to: "\(dir)/home-\(detailed ? "detailed" : "simple").png")
+        }
+        model.settings.homeDetailed = false
+        for width in [300.0, 262.0] {
+            render(ExpandedView(model: model, forSnapshot: true).frame(width: width, height: 760).padding(12)
+                .background(Color(white: 0.12)).environment(\.colorScheme, .dark), to: "\(dir)/home-\(Int(width)).png")
+        }
+        model.settings.homeDetailed = false
         renderDots(model.menuBarStates, to: "\(dir)/menubar.png")
         renderDots([.needsInput, .needsInput, .running, .running, .stale, .idle, .idle, .unknown, .running, .idle,
                     .idle, .running], to: "\(dir)/menubar-overflow.png")
@@ -42,6 +62,21 @@ enum Snapshot {
                 .background(Color(white: 0.12)).environment(\.colorScheme, .dark), to: "\(dir)/detail-dark.png")
             model.detailID = nil
         }
+        // Today's time, and the palette with a query typed.
+        model.mode = .today
+        render(ExpandedView(model: model, forSnapshot: true).frame(width: 360, height: 560).padding(12)
+            .background(Color(white: 0.12)).environment(\.colorScheme, .dark), to: "\(dir)/today-dark.png")
+        render(ExpandedView(model: model, forSnapshot: true).frame(width: 360, height: 560).padding(12)
+            .background(Color(white: 0.93)).environment(\.colorScheme, .light), to: "\(dir)/today-light.png")
+        model.mode = .list
+        let q = ProcessInfo.processInfo.environment["AGENTHUD_SNAPSHOT_QUERY"] ?? "load"
+        model.searching = true
+        model.query = q
+        render(ExpandedView(model: model, forSnapshot: true).frame(width: 360, height: 560).padding(12)
+            .background(Color(white: 0.12)).environment(\.colorScheme, .dark), to: "\(dir)/palette-dark.png")
+        model.searching = false
+        model.query = ""
+
         let savedRange = model.settings.dashboardRange
         defer { model.settings.dashboardRange = savedRange }
         for range in [DashboardRange.today, .week] {

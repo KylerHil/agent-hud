@@ -72,6 +72,37 @@ final class HistoryIndexTests: XCTestCase {
         XCTAssertEqual(again.active, r.active)
     }
 
+    func testTitlesAndEntrypointComeFromTheTranscript() throws {
+        let repo = base.appendingPathComponent("repo").path
+        let dir = claude.appendingPathComponent(ProjectRoot.encode(repo))
+        let first = #"{"type":"user","timestamp":"\#(iso(t0))","cwd":"\#(repo)","sessionId":"a","entrypoint":"claude-vscode"}"#
+        // A tool input that merely contains "-title" must not be taken for a title line.
+        let tool = #"{"type":"assistant","timestamp":"\#(iso(t0 + 30))","sessionId":"a","message":{"content":[{"type":"tool_use","input":{"cls":"page-title","x":1}}]}}"#
+        try write([
+            first,
+            #"{"type":"ai-title","aiTitle":"Early guess","sessionId":"a"}"#,
+            tool,
+            #"{"type":"ai-title","aiTitle":"Fix the migration order","sessionId":"a"}"#,
+            claudeLine(t0 + 60, cwd: repo, sid: "a"),
+        ], to: dir.appendingPathComponent("a.jsonl"))
+        try write([
+            claudeLine(t0, cwd: repo, sid: "b"),
+            #"{"type":"ai-title","aiTitle":"Generated","sessionId":"b"}"#,
+            #"{"type":"custom-title","customTitle":"My name for it","sessionId":"b"}"#,
+            claudeLine(t0 + 60, cwd: repo, sid: "b"),
+        ], to: dir.appendingPathComponent("b.jsonl"))
+        let idx = index()
+        idx.refresh()
+        let r = idx.report(from: Date(timeIntervalSince1970: TimeInterval(t0 - 10)),
+                           to: Date(timeIntervalSince1970: TimeInterval(t0 + 500)), idleGap: 600, calendar: utc)
+        let a = try XCTUnwrap(r.sessions.first { $0.sessionId == "a" })
+        XCTAssertEqual(a.title, "Fix the migration order")
+        XCTAssertEqual(a.entrypoint, "claude-vscode")
+        XCTAssertEqual(a.launchDir, repo)
+        XCTAssertEqual(a.active, 60, "the tool line still counts as activity")
+        XCTAssertEqual(r.sessions.first { $0.sessionId == "b" }?.title, "My name for it", "your own name beats the generated one")
+    }
+
     func testParallelSessionsInOneProjectCountOnce() throws {
         let repo = base.appendingPathComponent("repo").path
         let dir = claude.appendingPathComponent(ProjectRoot.encode(repo))
