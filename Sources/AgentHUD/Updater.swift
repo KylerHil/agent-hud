@@ -35,8 +35,31 @@ final class Updater {
         timer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.checkIfDue() }
         }
+        Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.relaunchIfReplaced() }
+        }
         // Give the app a moment to settle before the first check.
         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.checkIfDue() }
+    }
+
+    /// The app on disk is a newer version than this running copy (a `brew upgrade` that couldn't quit us):
+    /// restart into it, once nothing is waiting on you.
+    private func relaunchIfReplaced() {
+        let plist = Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")
+        guard let info = NSDictionary(contentsOf: plist),
+              let onDisk = info["CFBundleShortVersionString"] as? String,
+              UpdateCheck.isNewer(onDisk, than: Self.currentVersion), canAutoInstall() else { return }
+        Self.relaunch()
+    }
+
+    /// Quits and reopens the app from disk.
+    static func relaunch() {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", "while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done; /usr/bin/open -b com.xeratec.agenthud"]
+        try? p.run()
+        NSApp.terminate(nil)
     }
 
     private func checkIfDue() {
@@ -75,8 +98,8 @@ final class Updater {
         install()
     }
 
-    /// Homebrew: update the tap, upgrade (brew quits us first), then relaunch. It runs in its own process
-    /// so it outlives this one. Otherwise, the release page.
+    /// Homebrew: update the tap and upgrade, then quit this copy and launch the new one. brew won't quit
+    /// an app it's running inside, so the script does it after the swap. Otherwise, the release page.
     func install() {
         guard viaHomebrew, let brew = UpdateCheck.brewBinary else {
             NSWorkspace.shared.open(available?.page ?? UpdateCheck.releasesPage)
@@ -84,12 +107,15 @@ final class Updater {
         }
         status = .installing
         let log = Paths.home.appendingPathComponent("update.log").path
+        let pid = ProcessInfo.processInfo.processIdentifier
         let script = """
         {
           date
           "\(brew)" update --quiet
           "\(brew)" upgrade --cask agent-hud
         } >> '\(log)' 2>&1
+        kill \(pid) 2>/dev/null
+        while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done
         /usr/bin/open -b com.xeratec.agenthud
         """
         let p = Process()
