@@ -2,16 +2,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "AgentWatch",
+    name: "AgentHUD",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "AgentWatch", targets: ["AgentWatch"]),
-        .executable(name: "agentwatch-report", targets: ["agentwatch-report"]),
+        .executable(name: "AgentHUD", targets: ["AgentHUD"]),
+        .executable(name: "agenthud-report", targets: ["agenthud-report"]),
     ],
     targets: [
-        .target(name: "AgentWatchCore"),
-        .executableTarget(name: "agentwatch-report", dependencies: ["AgentWatchCore"]),
-        .executableTarget(name: "AgentWatch", dependencies: ["AgentWatchCore"]),
-        .testTarget(name: "AgentWatchCoreTests", dependencies: ["AgentWatchCore"]),
+        .target(name: "AgentHUDCore"),
+        .executableTarget(name: "agenthud-report", dependencies: ["AgentHUDCore"]),
+        .executableTarget(name: "AgentHUD", dependencies: ["AgentHUDCore"]),
+        .testTarget(name: "AgentHUDCoreTests", dependencies: ["AgentHUDCore"]),
     ]
 )

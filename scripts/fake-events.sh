@@ -7,15 +7,15 @@
 #   scripts/fake-events.sh --fast     # compress the timeline 5x
 #   scripts/fake-events.sh --clear    # just end every fake session
 #
-# Honors AGENTWATCH_HOME like the app and reporter do.
+# Honors AGENTHUD_HOME like the app and reporter do.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPORTER="${REPORTER:-}"
-for c in "$REPORTER" "$ROOT/.build/release/agentwatch-report" "$ROOT/.build/debug/agentwatch-report" "$HOME/.agentwatch/bin/agentwatch-report"; do
+for c in "$REPORTER" "$ROOT/.build/release/agenthud-report" "$ROOT/.build/debug/agenthud-report" "$HOME/.agenthud/bin/agenthud-report"; do
   [ -n "$c" ] && [ -x "$c" ] && REPORTER="$c" && break
 done
-[ -x "${REPORTER:-}" ] || { echo "agentwatch-report not built; run 'make build' first" >&2; exit 1; }
+[ -x "${REPORTER:-}" ] || { echo "agenthud-report not built; run 'make build' first" >&2; exit 1; }
 
 SPEED=1; LOOP=0; CLEAR=0
 for a in "$@"; do
@@ -27,7 +27,7 @@ for a in "$@"; do
   esac
 done
 
-FAKE_DIR="${TMPDIR:-/tmp}"; FAKE_DIR="${FAKE_DIR%/}/agentwatch-fake"
+FAKE_DIR="${TMPDIR:-/tmp}"; FAKE_DIR="${FAKE_DIR%/}/agenthud-fake"
 PROJECTS=(web-app api-server mobile-app infra docs-site)
 for p in "${PROJECTS[@]}"; do mkdir -p "$FAKE_DIR/$p"; done
 

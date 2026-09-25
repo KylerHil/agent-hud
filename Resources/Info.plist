@@ -3,28 +3,38 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>AgentWatch</string>
+	<string>AgentHUD</string>
 	<key>CFBundleDisplayName</key>
-	<string>AgentWatch</string>
+	<string>Agent HUD</string>
 	<key>CFBundleIdentifier</key>
-	<string>local.agentwatch.AgentWatch</string>
+	<string>com.xeratec.agenthud</string>
 	<key>CFBundleExecutable</key>
-	<string>AgentWatch</string>
+	<string>AgentHUD</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>1.0.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>MacOSX</string>
+	</array>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 Xeratec</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>AgentWatch uses AppleScript to bring the Terminal or iTerm2 tab running an agent session to the front when you click it.</string>
+	<string>Agent HUD uses AppleScript to bring the Terminal or iTerm2 tab running an agent session to the front when you click it.</string>
 </dict>
 </plist>

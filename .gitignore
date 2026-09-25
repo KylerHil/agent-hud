@@ -3,3 +3,7 @@ build/
 .swiftpm/
 *.xcodeproj
 .DS_Store
+Distribution/config.env
+*.provisionprofile
+*.p8
+.vscode/

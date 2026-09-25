@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The hook reporter is run by Claude Code / Codex, not by the app, so it carries its own sandbox
+	     and joins the app's group to append to the shared event log. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>__TEAM_ID__.__BUNDLE_ID__</string>
+	</array>
+</dict>
+</plist>
