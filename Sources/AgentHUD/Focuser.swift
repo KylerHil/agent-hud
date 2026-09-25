@@ -31,7 +31,7 @@ enum Focuser {
         case "iterm":
             if let tty = s.tty, runScript(itermScript(tty: tty)) { return }
         case "wezterm":
-            if let tty = s.tty, focusTerminal(tty: tty, pid: s.pid) { return }
+            if let tty = s.tty, weztermTab(tty) { return }
         case "vscode", "cursor", "windsurf":
             // Opening a window's own folder focuses it; opening a subfolder of it would make a new window.
             if let app = s.hostApp, let url = editorTarget(s, app: app) {
@@ -78,32 +78,48 @@ enum Focuser {
         return true
     }
 
-    private static func activate(bundleID: String) {
-        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.activate()
-    }
-
-    /// Terminal or iTerm2 tab with this tty, else the app that owns the process.
+    /// The tab showing `tty`. Which terminal is known from the process (a tmux client's pid), so only that
+    /// one is asked; without a pid, WezTerm (no permission needed) and then the scriptable ones are tried.
     @discardableResult
     static func focusTerminal(tty: String, pid: Int32?) -> Bool {
-        let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
-        if running.contains("com.apple.Terminal"), runScript(terminalScript(tty: tty)) { note("Terminal tab \(tty)"); return true }
-        if running.contains("com.googlecode.iterm2"), runScript(itermScript(tty: tty)) { note("iTerm2 session \(tty)"); return true }
-        if running.contains("com.github.wez.wezterm") {
-            if WezTerm.activate(tty: tty) {
-                note("WezTerm pane with \(tty)")
-                activate(bundleID: "com.github.wez.wezterm")
-                return true
-            }
-            note("WezTerm: no pane has \(tty)\(WezTerm.binary == nil ? " (wezterm CLI not found)" : "")")
+        let host = pid.map { ProcTools.ancestry(from: $0, agent: nil, env: [:]) }
+        note("terminal for \(tty): \(host?.hostKind ?? "unknown")")
+        switch host?.hostKind {
+        case "terminal": return scriptTab(terminalScript(tty: tty), "Terminal", tty) || activate(host?.hostApp)
+        case "iterm": return scriptTab(itermScript(tty: tty), "iTerm2", tty) || activate(host?.hostApp)
+        case "wezterm": return weztermTab(tty) || activate(host?.hostApp)
+        case .some: return activate(host?.hostApp)
+        case nil:
+            let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+            if running.contains("com.github.wez.wezterm"), weztermTab(tty) { return true }
+            if running.contains("com.apple.Terminal"), scriptTab(terminalScript(tty: tty), "Terminal", tty) { return true }
+            if running.contains("com.googlecode.iterm2"), scriptTab(itermScript(tty: tty), "iTerm2", tty) { return true }
+            note("no terminal found for \(tty)")
+            return false
         }
-        if let pid, let app = ProcTools.ancestry(from: pid, agent: nil, env: [:]).hostApp,
-           FileManager.default.fileExists(atPath: app) {
-            note("activating \(app)")
-            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: app), configuration: .init())
-            return true
+    }
+
+    private static func scriptTab(_ script: String, _ app: String, _ tty: String) -> Bool {
+        let ok = runScript(script)
+        note("\(app) tab \(tty): \(ok ? "selected" : "not found")")
+        return ok
+    }
+
+    private static func weztermTab(_ tty: String) -> Bool {
+        guard WezTerm.activate(tty: tty) else {
+            note("WezTerm: no tab has \(tty)\(WezTerm.binary == nil ? " (wezterm CLI not found)" : " (\(WezTerm.guiSockets().count) windows checked)")")
+            return false
         }
-        note("no terminal found for \(tty)")
-        return false
+        note("WezTerm tab \(tty): selected")
+        NSRunningApplication.runningApplications(withBundleIdentifier: "com.github.wez.wezterm").first?.activate()
+        return true
+    }
+
+    private static func activate(_ app: String?) -> Bool {
+        guard let app, FileManager.default.fileExists(atPath: app) else { return false }
+        note("activating \(app)")
+        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: app), configuration: .init())
+        return true
     }
 
     /// The open editor window containing the session, else its project root.

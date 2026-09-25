@@ -24,17 +24,38 @@ public enum WezTerm {
         }
     }
 
-    /// Selects the tab and pane running on `tty`. False when WezTerm isn't installed or no pane has it.
-    public static func activate(tty: String) -> Bool {
-        guard let bin = binary, let out = run(bin, ["cli", "list", "--format", "json"]),
-              let pane = parse(out).first(where: { $0.tty == tty }) else { return false }
-        return run(bin, ["cli", "activate-pane", "--pane-id", String(pane.paneID)]) != nil
+    /// Each running WezTerm window listens on `~/.local/share/wezterm/gui-sock-<pid>`. Outside WezTerm,
+    /// `wezterm cli` doesn't know which one to use, and without `--no-auto-start` it would start a separate,
+    /// invisible mux server instead; so every call names a GUI socket explicitly.
+    public static func guiSockets() -> [String] {
+        let dir = Paths.userHome.appendingPathComponent(".local/share/wezterm")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        return names.compactMap { name -> String? in
+            guard name.hasPrefix("gui-sock-"), let pid = Int32(name.dropFirst("gui-sock-".count)),
+                  ProcTools.isAlive(pid) else { return nil }
+            return dir.appendingPathComponent(name).path
+        }
     }
 
-    private static func run(_ bin: String, _ args: [String]) -> Data? {
+    /// Selects the tab and pane running on `tty`. False when WezTerm isn't installed or no window has it.
+    public static func activate(tty: String) -> Bool {
+        guard let bin = binary else { return false }
+        for socket in guiSockets() {
+            guard let out = run(bin, ["cli", "--no-auto-start", "list", "--format", "json"], socket: socket),
+                  let pane = parse(out).first(where: { $0.tty == tty }) else { continue }
+            return run(bin, ["cli", "--no-auto-start", "activate-pane", "--pane-id", String(pane.paneID)],
+                       socket: socket) != nil
+        }
+        return false
+    }
+
+    private static func run(_ bin: String, _ args: [String], socket: String) -> Data? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: bin)
         p.arguments = args
+        var env = ProcessInfo.processInfo.environment
+        env["WEZTERM_UNIX_SOCKET"] = socket
+        p.environment = env
         let out = Pipe()
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
