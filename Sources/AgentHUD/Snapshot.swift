@@ -40,9 +40,9 @@ enum Snapshot {
                 .background(Color(white: 0.12)).environment(\.colorScheme, .dark), to: "\(dir)/home-\(Int(width)).png")
         }
         model.settings.homeDetailed = false
-        renderDots(model.menuBarStates, to: "\(dir)/menubar.png")
-        renderDots([.needsInput, .needsInput, .running, .running, .stale, .idle, .idle, .unknown, .running, .idle,
-                    .idle, .running], to: "\(dir)/menubar-overflow.png")
+        renderDots(model.menuBarDots, to: "\(dir)/menubar.png")
+        renderDots(([.needsInput, .needsInput, .running, .running, .stale, .idle, .idle, .unknown, .running, .idle,
+                     .idle, .running] as [SessionState]).map { AppModel.MenuDot(state: $0) }, to: "\(dir)/menubar-overflow.png")
         for scheme in [ColorScheme.light, .dark] {
             let bg = scheme == .dark ? Color(white: 0.12) : Color(white: 0.93)
             render(ExpandedView(model: model, forSnapshot: true).frame(width: 340, height: 500).padding(12).background(bg)
@@ -99,7 +99,7 @@ enum Snapshot {
     }
 
     /// The menu-bar dots for the given states, on a menu-bar-like strip, light and dark.
-    static func renderDots(_ states: [SessionState], to path: String) {
+    static func renderDots(_ states: [AppModel.MenuDot], to path: String) {
         let dots = AppDelegate.dotsImage(states, withEye: true)
         let pad: CGFloat = 10
         let size = NSSize(width: dots.size.width + pad * 2, height: 24 * 2 + 4)

@@ -527,23 +527,38 @@ final class AppModel {
         sorted.filter { displayState($0) != .ended && !isHidden($0) }
     }
 
-    /// One dot per session, or per project when grouping (colored by its most urgent session).
-    /// After "Sync Dot Order", dots follow AeroSpace's window order; unmatched ones trail in panel order.
-    var menuBarStates: [SessionState] {
-        let names = settings.dotOrder
-        func rank(_ s: Session) -> Int { AeroSpace.rank(root: s.root, cwd: s.cwd, in: names) ?? .max }
-        if settings.groupByProject {
-            return inRankOrder(projectUnits(menuBarSessions)) { $0.sessions.map(rank).min() ?? .max }.map(state)
-        }
-        return inRankOrder(menuBarSessions, rank).map(displayState)
+    /// One menu bar dot: its state's color, or blue while its turn just finished (like the cards).
+    struct MenuDot: Equatable {
+        var state: SessionState
+        var justFinished = false
     }
 
-    /// Stable sort by rank, so equal ranks keep panel order.
-    private func inRankOrder<T>(_ items: [T], _ rank: (T) -> Int) -> [T] {
-        guard !settings.dotOrder.isEmpty else { return items }
-        return items.enumerated().map { (rank($0.element), $0.offset, $0.element) }
-            .sorted { ($0.0, $0.1) < ($1.0, $1.1) }.map(\.2)
+    /// One dot per session, or per project when grouping, colored by the most urgent session.
+    /// After "Sync Dot Order", one dot per AeroSpace window in window order (however many sessions it
+    /// has); sessions with no window trail in panel order.
+    var menuBarDots: [MenuDot] { menuBarDotGroups.map(dot) }
+
+    /// The sessions behind each dot, most urgent first.
+    var menuBarDotGroups: [[Session]] {
+        let live = menuBarSessions
+        let names = settings.dotOrder
+        let byUnit = { (ss: [Session]) -> [[Session]] in
+            self.settings.groupByProject ? Session.groupedByProject(ss) : ss.map { [$0] }
+        }
+        guard !names.isEmpty else { return byUnit(live) }
+        var windows = Array(repeating: [Session](), count: names.count)
+        var rest: [Session] = []
+        for s in live {
+            if let r = AeroSpace.rank(root: s.root, cwd: s.cwd, in: names) { windows[r].append(s) } else { rest.append(s) }
+        }
+        return windows.filter { !$0.isEmpty } + byUnit(rest)
     }
+
+    private func dot(_ group: [Session]) -> MenuDot {
+        let state = displayState(group[0])
+        return MenuDot(state: state, justFinished: state == .idle && group.contains(where: isJustFinished))
+    }
+
 
     private(set) var syncingDotOrder = false
     var canSyncDotOrder: Bool { !Paths.isSandboxed && AeroSpace.binary != nil }

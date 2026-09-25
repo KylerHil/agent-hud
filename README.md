@@ -227,7 +227,10 @@ Agent HUD's hooks were in it.
   VS Code-family windows in AeroSpace's tree. AeroSpace has no way to query that order, so syncing
   briefly steps focus through each window on those workspaces, then restores it. It runs only when
   clicked; **Reset Dot Order** goes back to panel order. Windows are matched by the folder name at
-  the end of their title.
+  the end of their title. After a sync each window gets one dot (colored by its most urgent session);
+  sync again after you rearrange windows. `AgentHUD --debug-dots` prints which sessions each dot
+  stands for.
+- **Blue dots** in the menu bar are sessions in Just finished, like the cards.
 - **Notifications** have Show, Snooze 10 min, and Mute Session. "Finished" (off by default, and only
   for turns of 2 min or more) says how long the turn took, what it edited and ran, and whether its
   tests passed, with Show Details.

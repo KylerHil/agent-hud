@@ -72,10 +72,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observeCounts()
     }
 
-    private var lastDots: [SessionState]?
+    private var lastDots: [AppModel.MenuDot]?
 
     private func observeCounts() {
-        withObservationTracking { _ = model.menuBarStates } onChange: { [weak self] in
+        withObservationTracking { _ = model.menuBarDots } onChange: { [weak self] in
             Task { @MainActor in
                 self?.updateStatusItem()
                 self?.observeCounts()
@@ -86,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The eye, always, followed by one colored dot per live session in panel order.
     private func updateStatusItem() {
         guard let button = statusItem.button else { return }
-        let states = model.menuBarStates
+        let states = model.menuBarDots
         guard states != lastDots else { return }
         lastDots = states
         button.title = ""
@@ -103,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     static let maxDots = 10
 
-    static func dotsImage(_ states: [SessionState], withEye: Bool = false) -> NSImage {
+    static func dotsImage(_ states: [AppModel.MenuDot], withEye: Bool = false) -> NSImage {
         let shown = Array(states.prefix(maxDots))
         let overflow = states.count - shown.count
         let d: CGFloat = 8, gap: CGFloat = 3, height: CGFloat = 18
@@ -124,9 +124,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSColor.labelColor.set()
                 r.fill(using: .sourceAtop)
             }
-            for (i, state) in shown.enumerated() {
+            for (i, dot) in shown.enumerated() {
+                let state = dot.state
                 let rect = NSRect(x: lead + CGFloat(i) * (d + gap), y: (height - d) / 2, width: d, height: d)
-                state.nsColor.setFill()
+                (dot.justFinished ? NSColor.controlAccentColor : state.nsColor).setFill()
                 NSBezierPath(ovalIn: rect).fill()
                 if state == .needsInput { // a ring makes "needs you" readable even for colorblind eyes
                     NSColor.systemOrange.withAlphaComponent(0.45).setStroke()
@@ -141,7 +142,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
         image.isTemplate = false
-        image.accessibilityDescription = "Agent HUD: " + states.map(\.verb).joined(separator: ", ")
+        image.accessibilityDescription = "Agent HUD: " + states.map { $0.justFinished ? "just finished" : $0.state.verb }
+            .joined(separator: ", ")
         return image
     }
 }
@@ -219,7 +221,7 @@ extension AppDelegate: NSMenuDelegate {
         item.attributedTitle = title
         item.target = self
         item.representedObject = s.id
-        item.image = Self.dotsImage([state])
+        item.image = Self.dotsImage([AppModel.MenuDot(state: state, justFinished: model.isJustFinished(s))])
         if state == .needsInput, let p = s.primaryPending {
             item.toolTip = [p.reason, p.detail].compactMap { $0 }.joined(separator: " · ")
         }

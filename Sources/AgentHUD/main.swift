@@ -19,6 +19,22 @@ MainActor.assumeIsolated {
         Focuser.trace.forEach { print($0) }
         exit(0)
     }
+    // `AgentHUD --debug-dots`: the menu bar dots in order, with the session and AeroSpace window each matched.
+    if CommandLine.arguments.contains("--debug-dots") {
+        let model = AppModel(settings: AppSettings())
+        let tailer = EventTailer { events, _ in MainActor.assumeIsolated { model.ingest(events, replay: true) } }
+        tailer.start(interval: 3600)
+        tailer.stop()
+        model.scan()
+        let names = model.settings.dotOrder
+        print("dot order: \(names)")
+        for (i, group) in model.menuBarDotGroups.enumerated() {
+            let r = AeroSpace.rank(root: group[0].root, cwd: group[0].cwd, in: names)
+            let who = group.map { "\($0.projectName) (\(model.displayState($0).rawValue), \($0.hostLabel ?? "?"))" }.joined(separator: ", ")
+            print("  dot \(i + 1): \(r.map { "window \($0 + 1) \(names[$0])" } ?? "no window") ← \(who)")
+        }
+        exit(0)
+    }
     // `AgentHUD --history [days]`: index transcripts and print the report, for checking numbers by hand.
     if let i = CommandLine.arguments.firstIndex(of: "--history") {
         let days = i + 1 < CommandLine.arguments.count ? Int(CommandLine.arguments[i + 1]) ?? 7 : 7
