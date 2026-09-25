@@ -71,8 +71,14 @@ struct SettingsView: View {
             }
             Section("Shortcuts") {
                 Toggle("Global shortcuts", isOn: $settings.hotkeysEnabled)
-                LabeledContent("Find a session") { Text("⌃⌥Space").foregroundStyle(.secondary) }
-                LabeledContent("Show or hide the panel") { Text("⌃⌥A").foregroundStyle(.secondary) }
+                LabeledContent("Find and jump to a session") {
+                    ShortcutRecorder(model: model, shortcut: $settings.findShortcut, fallback: .findDefault)
+                }
+                .disabled(!settings.hotkeysEnabled)
+                LabeledContent("Show or hide the panel") {
+                    ShortcutRecorder(model: model, shortcut: $settings.panelShortcut, fallback: .panelDefault)
+                }
+                .disabled(!settings.hotkeysEnabled)
             }
             Section("General") {
                 Toggle("Launch at login", isOn: $launchAtLogin)

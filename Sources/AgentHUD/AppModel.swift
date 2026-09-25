@@ -54,6 +54,8 @@ final class AppModel {
     var searching = false
     var query = ""
     var searchSelection = 0
+    /// True while Settings records a new shortcut; global hotkeys pause so the keys reach the recorder.
+    var recordingShortcut = false
     /// Hooks still pointing at AgentWatch's reporter, from before the rename.
     private(set) var legacyHooks = false
     let history: HistoryModel

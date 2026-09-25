@@ -24,14 +24,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyHotKeys()
     }
 
-    /// ⌃⌥Space finds a session, ⌃⌥A shows or hides the panel.
+    /// Find a session (default ⌃⌥Space) and show/hide the panel (default ⌃⌥A); both set in Settings.
     private func applyHotKeys() {
         HotKeys.shared.unregisterAll()
-        if settings.hotkeysEnabled {
-            HotKeys.shared.register(id: 1, keyCode: kVK_Space) { [weak self] in self?.toggleSearch() }
-            HotKeys.shared.register(id: 2, keyCode: kVK_ANSI_A) { [weak self] in self?.panel.toggle() }
+        if settings.hotkeysEnabled && !model.recordingShortcut {
+            let find = settings.findShortcut, show = settings.panelShortcut
+            HotKeys.shared.register(id: 1, keyCode: find.keyCode, modifiers: find.modifiers) { [weak self] in self?.toggleSearch() }
+            HotKeys.shared.register(id: 2, keyCode: show.keyCode, modifiers: show.modifiers) { [weak self] in self?.panel.toggle() }
         }
-        withObservationTracking { _ = settings.hotkeysEnabled } onChange: { [weak self] in
+        withObservationTracking {
+            _ = settings.hotkeysEnabled
+            _ = settings.findShortcut
+            _ = settings.panelShortcut
+            _ = model.recordingShortcut
+        } onChange: { [weak self] in
             Task { @MainActor in self?.applyHotKeys() }
         }
     }
@@ -163,8 +169,8 @@ extension AppDelegate: NSMenuDelegate {
         menu.addItem(.separator())
         let next = add(menu, "Jump to Next Waiting", #selector(focusNextWaiting), "")
         next.isEnabled = model.nextWaiting != nil
-        hotkey(add(menu, "Find Session…", #selector(openSwitcher), " "))
-        hotkey(add(menu, panel.isVisible ? "Hide Panel" : "Show Panel", #selector(togglePanel), "a"))
+        hotkey(add(menu, "Find Session…", #selector(openSwitcher), ""), settings.findShortcut)
+        hotkey(add(menu, panel.isVisible ? "Hide Panel" : "Show Panel", #selector(togglePanel), ""), settings.panelShortcut)
         add(menu, settings.collapsed ? "Expand Panel" : "Collapse to Pill", #selector(toggleCollapsed), "")
         add(menu, "Show Idle Sessions", #selector(toggleShowIdle), "").state = settings.showIdle ? .on : .off
         menu.addItem(pauseItem())
@@ -231,8 +237,11 @@ extension AppDelegate: NSMenuDelegate {
         return item
     }
 
-    private func hotkey(_ item: NSMenuItem) {
-        if settings.hotkeysEnabled { item.keyEquivalentModifierMask = [.control, .option] } else { item.keyEquivalent = "" }
+    /// Shows the global shortcut next to the menu item.
+    private func hotkey(_ item: NSMenuItem, _ s: Shortcut) {
+        guard settings.hotkeysEnabled, let (key, flags) = s.menuEquivalent else { return }
+        item.keyEquivalent = key
+        item.keyEquivalentModifierMask = flags
     }
 
     @discardableResult

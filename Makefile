@@ -6,7 +6,7 @@ APP := build/AgentHUD.app
 APP_DEST := $(HOME)/Applications/AgentHUD.app
 LEGACY_APP := $(HOME)/Applications/AgentWatch.app
 
-.PHONY: help icon build test fake fake-loop fake-clear hooks-diff install-hooks uninstall-hooks hooks-status app run install install-reporter clean release-direct release-appstore upload-appstore
+.PHONY: help icon build test fake fake-loop fake-clear hooks-diff install-hooks uninstall-hooks hooks-status app run install install-reporter clean release release-dry-run
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -70,14 +70,12 @@ icon: ## Regenerate Resources/AppIcon.icns from scripts/make-icon.swift
 	iconutil -c icns build/AppIcon.iconset -o Resources/AppIcon.icns
 	@echo "wrote Resources/AppIcon.icns"
 
-release-direct: ## Developer ID build: sign, notarize, staple, DMG (docs/DISTRIBUTION.md)
-	scripts/release.sh direct
+release: ## Publish VERSION=x.y.z: GitHub Release + Homebrew tap (docs/RELEASING.md)
+	@test -n "$(VERSION)" || { echo "usage: make release VERSION=1.2.0"; exit 1; }
+	scripts/release.sh $(VERSION)
 
-release-appstore: ## Sandboxed App Store build: sign and package a .pkg (docs/DISTRIBUTION.md)
-	scripts/release.sh appstore
-
-upload-appstore: ## Build the App Store .pkg and upload it to App Store Connect (TestFlight)
-	scripts/release.sh appstore --upload
+release-dry-run: ## Build the release zip and cask into build/release without publishing
+	scripts/release.sh $(or $(VERSION),0.0.0) --dry-run
 
 clean: ## Remove build outputs
 	rm -rf .build build

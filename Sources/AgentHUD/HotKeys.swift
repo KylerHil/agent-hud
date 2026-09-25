@@ -11,11 +11,11 @@ final class HotKeys {
     private var handlerInstalled = false
     private static let signature: OSType = 0x4157_5448 // "AWTH"
 
-    /// ⌃⌥ plus a virtual key code (kVK_Space, kVK_ANSI_A, …).
-    func register(id: UInt32, keyCode: Int, _ action: @escaping () -> Void) {
+    /// A virtual key code (kVK_Space, kVK_ANSI_A, …) with Carbon modifiers (controlKey | optionKey …).
+    func register(id: UInt32, keyCode: Int, modifiers: Int, _ action: @escaping () -> Void) {
         installHandler()
         var ref: EventHotKeyRef?
-        let status = RegisterEventHotKey(UInt32(keyCode), UInt32(controlKey | optionKey),
+        let status = RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers),
                                          EventHotKeyID(signature: Self.signature, id: id),
                                          GetApplicationEventTarget(), 0, &ref)
         guard status == noErr, let ref else {

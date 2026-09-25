@@ -277,7 +277,7 @@ struct ExpandedView: View {
             Image(systemName: "eye").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
             Text("Agent HUD").font(.system(size: 12, weight: .semibold))
             Spacer()
-            IconButton(symbol: "magnifyingglass", help: "Find a session (⌃⌥Space)") {
+            IconButton(symbol: "magnifyingglass", help: "Find a session (\(model.settings.findShortcut.display))") {
                 if model.searching { model.endSearch() } else { model.beginSearch(); model.actions.focusPanel() }
             }
             IconButton(symbol: "chart.bar.xaxis", help: "Dashboard") { model.actions.openDashboard() }
@@ -419,7 +419,7 @@ struct ExpandedView: View {
                 .help("Open the dashboard")
             Spacer(minLength: 4)
             if model.settings.hotkeysEnabled {
-                Keycap(text: "⌃⌥Space")
+                Keycap(text: model.settings.findShortcut.display)
                 Text("jump")
             }
         }

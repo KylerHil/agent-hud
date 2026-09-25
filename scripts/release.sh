@@ -1,124 +1,84 @@
 #!/bin/bash
-# Builds a signed release of Agent HUD. See docs/DISTRIBUTION.md for the one-time setup.
+# Publishes a release of Agent HUD for Homebrew. See docs/RELEASING.md.
 #
-#   scripts/release.sh direct              Developer ID: sign, notarize, staple, DMG → build/dist/
-#   scripts/release.sh appstore            Sandboxed Mac App Store build → build/dist/*.pkg
-#   scripts/release.sh appstore --upload   …and upload it to App Store Connect (it lands in TestFlight)
+#   scripts/release.sh 1.2.0            build, tag, GitHub Release, update the tap
+#   scripts/release.sh 1.2.0 --dry-run  build the zip and the cask into build/, publish nothing
 #
-# Environment: VERSION (default: Info.plist), BUILD_NUMBER (default: yyMMddHHmm, always increasing).
+# Environment: REPO (default KylerHil/agent-hud), TAP (default KylerHil/homebrew-tap).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-FLAVOR="${1:-}"
-UPLOAD="${2:-}"
-[[ "$FLAVOR" == "direct" || "$FLAVOR" == "appstore" ]] || { sed -n '2,8p' "$0"; exit 1; }
+VERSION="${1:-}"
+DRY="${2:-}"
+REPO="${REPO:-KylerHil/agent-hud}"
+TAP="${TAP:-KylerHil/homebrew-tap}"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { sed -n '2,8p' "$0"; exit 1; }
 
-CONFIG="Distribution/config.env"
-[[ -f "$CONFIG" ]] || { echo "Missing $CONFIG: copy Distribution/config.env.example and fill it in." >&2; exit 1; }
-# shellcheck disable=SC1090
-source "$CONFIG"
-[[ "${TEAM_ID:-XXXXXXXXXX}" != "XXXXXXXXXX" ]] || { echo "Set TEAM_ID in $CONFIG." >&2; exit 1; }
+step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
+die() { echo "error: $*" >&2; exit 1; }
 
-# Fail early, with the fix, rather than deep inside codesign or altool.
-missing=()
-have_identity() { security find-identity -v 2>/dev/null | grep -qF "\"$1\""; }
-if [[ "$FLAVOR" == "direct" ]]; then
-    have_identity "$DEVELOPER_ID_APP" || missing+=("Certificate \"$DEVELOPER_ID_APP\" (docs/DISTRIBUTION.md step 2)")
-    xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
-        || missing+=("Notary profile \"$NOTARY_PROFILE\" (step 7)")
-else
-    have_identity "$APPSTORE_APP_IDENTITY" || missing+=("Certificate \"$APPSTORE_APP_IDENTITY\" (step 2)")
-    have_identity "$APPSTORE_INSTALLER_IDENTITY" || missing+=("Certificate \"$APPSTORE_INSTALLER_IDENTITY\" (step 2)")
-    [[ -f "$APPSTORE_PROFILE" ]] || missing+=("Provisioning profile at $APPSTORE_PROFILE (step 4)")
-    if [[ "$UPLOAD" == "--upload" ]]; then
-        [[ "${ASC_KEY_ID:-XXXXXXXXXX}" != "XXXXXXXXXX" ]] || missing+=("ASC_KEY_ID and ASC_ISSUER_ID in $CONFIG (step 6)")
-        [[ -f "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID:-}.p8" ]] \
-            || missing+=("API key file ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID:-<id>}.p8 (step 6)")
-    fi
-fi
-if (( ${#missing[@]} )); then
-    echo "Not ready to build the $FLAVOR release. Missing:" >&2
-    printf '  - %s\n' "${missing[@]}" >&2
-    echo "Installed signing identities:" >&2
-    security find-identity -v | sed 's/^/    /' >&2
-    exit 1
+if [[ "$DRY" != "--dry-run" ]]; then
+    gh auth status >/dev/null 2>&1 || die "run 'gh auth login' first"
+    [[ -z "$(git status --porcelain)" ]] || die "commit or stash your changes first"
+    [[ "$(git branch --show-current)" == "main" ]] || die "release from main"
+    git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null && die "tag v$VERSION already exists"
+    step "Running tests"
+    swift test 2>&1 | tail -1
 fi
 
 PLIST=/usr/libexec/PlistBuddy
-VERSION="${VERSION:-$($PLIST -c 'Print :CFBundleShortVersionString' Resources/Info.plist)}"
-BUILD_NUMBER="${BUILD_NUMBER:-$(date +%y%m%d%H%M)}"
-OUT="build/$FLAVOR"
-APP="$OUT/AgentHUD.app"
-DIST="build/dist"
-mkdir -p "$DIST"
+# Build numbers only need to increase; the commit count does.
+BUILD_NUMBER="$(( $(git rev-list --count HEAD) + 1 ))"
+if [[ "$DRY" != "--dry-run" && "$($PLIST -c 'Print :CFBundleShortVersionString' Resources/Info.plist)" != "$VERSION" ]]; then
+    $PLIST -c "Set :CFBundleShortVersionString $VERSION" Resources/Info.plist
+    $PLIST -c "Set :CFBundleVersion $BUILD_NUMBER" Resources/Info.plist
+    git commit -qm "Release $VERSION" Resources/Info.plist
+fi
 
-step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
-
-step "Building universal release ($VERSION, build $BUILD_NUMBER)"
-swift build -c release --arch arm64 --arch x86_64
+step "Building universal release $VERSION"
+swift build -c release --arch arm64 --arch x86_64 2>&1 | grep -E "error|Compiling|Build complete" | tail -3
 BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
-
-step "Assembling $APP"
+OUT="build/release"
+APP="$OUT/AgentHUD.app"
 rm -rf "$OUT" && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
-cp "$BIN/AgentHUD" "$BIN/agenthud-report" "$APP/Contents/MacOS/"
-cp Resources/AppIcon.icns Resources/PrivacyInfo.xcprivacy "$APP/Contents/Resources/"
-$PLIST -c "Set :CFBundleIdentifier $BUNDLE_ID" "$APP/Contents/Info.plist"
 $PLIST -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 $PLIST -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"
+cp "$BIN/AgentHUD" "$BIN/agenthud-report" "$APP/Contents/MacOS/"
+cp Resources/AppIcon.icns Resources/PrivacyInfo.xcprivacy "$APP/Contents/Resources/"
+# Ad-hoc signed: enough for Apple silicon to run it; the cask clears the download quarantine.
+codesign --force --sign - --identifier com.xeratec.agenthud.reporter "$APP/Contents/MacOS/agenthud-report"
+codesign --force --sign - "$APP"
+codesign --verify --strict --deep "$APP"
 
-entitlements() { # template → filled-in copy
-    local out="$OUT/$(basename "$1")"
-    sed -e "s/__TEAM_ID__/$TEAM_ID/g" -e "s/__BUNDLE_ID__/$BUNDLE_ID/g" "$1" > "$out"
-    echo "$out"
-}
+ZIP="$OUT/AgentHUD-$VERSION.zip"
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+SHA="$(shasum -a 256 "$ZIP" | cut -d' ' -f1)"
+sed -e "s/__VERSION__/$VERSION/" -e "s/__SHA256__/$SHA/" packaging/agent-hud.rb > "$OUT/agent-hud.rb"
+echo "zip:  $ZIP"
+echo "sha:  $SHA"
 
-if [[ "$FLAVOR" == "direct" ]]; then
-    ENT="$(entitlements Distribution/entitlements/direct.entitlements)"
-    step "Signing with $DEVELOPER_ID_APP (hardened runtime)"
-    codesign --force --timestamp --options runtime --sign "$DEVELOPER_ID_APP" \
-        --identifier "$BUNDLE_ID.reporter" "$APP/Contents/MacOS/agenthud-report"
-    codesign --force --timestamp --options runtime --sign "$DEVELOPER_ID_APP" --entitlements "$ENT" "$APP"
-    codesign --verify --strict --deep "$APP"
-
-    step "Building the DMG"
-    DMG="$DIST/AgentHUD-$VERSION.dmg"
-    STAGE="$OUT/dmg" && rm -rf "$STAGE" && mkdir -p "$STAGE"
-    cp -R "$APP" "$STAGE/" && ln -s /Applications "$STAGE/Applications"
-    rm -f "$DMG"
-    hdiutil create -volname "Agent HUD" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
-    codesign --force --timestamp --sign "$DEVELOPER_ID_APP" "$DMG"
-
-    step "Notarizing (a few minutes)"
-    xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
-    xcrun stapler staple "$DMG"
-    spctl --assess --type open --context context:primary-signature -v "$DMG" || true
-    step "Done: $DMG"
+if [[ "$DRY" == "--dry-run" ]]; then
+    step "Dry run: nothing published. Cask written to $OUT/agent-hud.rb"
     exit 0
 fi
 
-# --- App Store ---------------------------------------------------------------------
-$PLIST -c "Add :AgentHUDAppGroup string $TEAM_ID.$BUNDLE_ID" "$APP/Contents/Info.plist"
-cp "$APPSTORE_PROFILE" "$APP/Contents/embedded.provisionprofile"
-APP_ENT="$(entitlements Distribution/entitlements/appstore-app.entitlements)"
-REP_ENT="$(entitlements Distribution/entitlements/appstore-reporter.entitlements)"
+step "Tagging v$VERSION and publishing the GitHub Release"
+git tag -a "v$VERSION" -m "Agent HUD $VERSION"
+git push -q origin main "v$VERSION"
+gh release create "v$VERSION" "$ZIP" --repo "$REPO" --title "Agent HUD $VERSION" --generate-notes
 
-step "Signing with $APPSTORE_APP_IDENTITY (App Sandbox)"
-codesign --force --timestamp --sign "$APPSTORE_APP_IDENTITY" --identifier "$BUNDLE_ID.reporter" \
-    --entitlements "$REP_ENT" "$APP/Contents/MacOS/agenthud-report"
-codesign --force --timestamp --sign "$APPSTORE_APP_IDENTITY" --entitlements "$APP_ENT" "$APP"
-codesign --verify --strict --deep "$APP"
-codesign -d --entitlements - "$APP" >/dev/null
+step "Updating the Homebrew tap ($TAP)"
+TAPDIR="build/homebrew-tap"
+rm -rf "$TAPDIR"
+gh repo clone "$TAP" "$TAPDIR" -- -q
+mkdir -p "$TAPDIR/Casks"
+cp "$OUT/agent-hud.rb" "$TAPDIR/Casks/agent-hud.rb"
+git -C "$TAPDIR" add Casks/agent-hud.rb
+git -C "$TAPDIR" commit -qm "agent-hud $VERSION"
+git -C "$TAPDIR" push -q
 
-step "Packaging"
-PKG="$DIST/AgentHUD-$VERSION-$BUILD_NUMBER.pkg"
-productbuild --component "$APP" /Applications --sign "$APPSTORE_INSTALLER_IDENTITY" "$PKG"
-
-if [[ "$UPLOAD" == "--upload" ]]; then
-    step "Validating with App Store Connect"
-    xcrun altool --validate-app -f "$PKG" -t macos --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
-    step "Uploading (it appears in TestFlight after processing, usually 10–30 min)"
-    xcrun altool --upload-app -f "$PKG" -t macos --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
-fi
-step "Done: $PKG"
+step "Released. Install or update with:"
+echo "  brew install --cask kylerhil/tap/agent-hud"
+echo "  brew upgrade --cask agent-hud"

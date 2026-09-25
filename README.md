@@ -6,7 +6,7 @@ pings you when one is waiting on you. You answer prompts in the agent itself; Ag
 watches and gets you there.
 
 ```
-┌ 👁 Agent HUD                          ⌕  ▥  ⌃ ┐
+┌ 👁 Agent HUD                       ⌕  ▥  ⚙  ⌃ ┐
 │ [ All 6 ][ ● You 2 ][ ● Busy 2 ][ ● Idle 2 ]   │
 │ NEEDS YOU 2                                    │
 │ ● Claude  web-app  Terminal         waiting 42s│
@@ -25,7 +25,36 @@ watches and gets you there.
 ```
 
 Swift + SwiftUI, macOS 14+, no dependencies beyond what ships with macOS (`jq` is used by the
-hook installer; it's at `/usr/bin/jq` on macOS 15+). No network, no Dock icon.
+hook installer: built into macOS 15+, and installed with the cask on 14). No network, no Dock icon.
+
+## Install
+
+Requires macOS 14 (Sonoma) or later, on Apple silicon or Intel, and [Homebrew](https://brew.sh).
+
+```sh
+brew install --cask kylerhil/tap/agent-hud
+```
+
+Then:
+
+1. Open **Agent HUD** (Spotlight, or `/Applications`). A panel appears at the top right, and an eye
+   appears in the menu bar.
+2. Click the **gear** → **Hooks** → **Install Hooks…**, check the diff, then **Apply**. This lets
+   Claude Code and Codex report to Agent HUD. It adds entries next to your existing hooks, with a
+   backup first. The same from a terminal: `agenthud-report install-hooks`.
+3. Restart any Claude Code session that's already running. For Codex, run `/hooks` once and trust
+   the Agent HUD entries.
+4. Optional: gear → **General** → **Launch at login**.
+
+macOS asks once to allow notifications, and once per terminal app for Automation (used to select
+the right tab when you click a session).
+
+**Update:** `brew upgrade --cask agent-hud`
+**Uninstall:** `brew uninstall --cask agent-hud`. Add `--zap` to also remove its hooks (with backups),
+settings and `~/.agenthud`.
+
+Agent HUD isn't notarized by Apple. The cask clears the download quarantine so it opens normally.
+If you install from the zip by hand instead, right-click the app → **Open** the first time.
 
 ## How it works
 
@@ -75,12 +104,6 @@ their parent session.
 logs don't record approval prompts. A Codex `app-server` hosts many threads in one process, so a
 Codex session ends when its VS Code window's `codex` process exits.
 
-## Distribution
-
-Direct download (Developer ID, notarized DMG) and Mac App Store / TestFlight builds are one command
-each after a one-time setup: see [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md), and
-[docs/APP_STORE.md](docs/APP_STORE.md) for the listing, review notes and a TestFlight checklist.
-
 ## Coming from AgentWatch
 
 Agent HUD was called AgentWatch. On first launch it moves `~/.agentwatch` to `~/.agenthud`, leaving
@@ -88,13 +111,16 @@ a symlink so hooks installed by AgentWatch keep working, and carries your settin
 the panel offers **Update…**, which replaces the old hook entries through the usual diff preview.
 `make install` removes `~/Applications/AgentWatch.app`.
 
-## Build and run
+## Build from source
+
+Needs Xcode 16 or later (or its Command Line Tools).
 
 ```sh
 make app        # build/AgentHUD.app (ad-hoc signed)
 make run        # build and launch from build/
 make install    # copy to ~/Applications/AgentHUD.app + ~/.agenthud/bin/agenthud-report, launch
 make test       # unit tests
+make release VERSION=1.2.0   # publish a release to GitHub and the Homebrew tap (docs/RELEASING.md)
 make icon       # regenerate Resources/AppIcon.icns from scripts/make-icon.swift
 make help       # everything else
 ```
@@ -149,8 +175,8 @@ Agent HUD's hooks were in it.
 - **⌃** collapses to a pill. While something needs input the pill names it (`● web-app  Permission: Bash  +1`)
   and pulses orange; otherwise it shows counts. Click the pill to expand.
 - **⌃⌥Space** (or the magnifying glass) brings the panel forward with a search field: type to
-  filter, ↑↓, Return or ⌘1–9 to jump, Esc to close. **⌃⌥A** shows or hides the panel. Both can be
-  turned off in Settings.
+  filter, ↑↓, Return or ⌘1–9 to jump, Esc to close. **⌃⌥A** shows or hides the panel. Change either
+  under gear → General → Shortcuts (click, then press the new combination), or turn them off.
 - **Everything happens in the panel.** The dashboard (chart icon) and settings (gear) open inside
   it, and it grows to fit them; nothing opens a separate window. CSV export saves straight to
   Downloads.
