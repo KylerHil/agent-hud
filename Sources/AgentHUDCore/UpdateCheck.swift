@@ -1,7 +1,8 @@
 import Foundation
 
-/// Finds out whether a newer Agent HUD has been released, from GitHub's latest-release API.
-/// This is the app's only network request, and Settings can turn it off.
+/// Finds out whether a newer Agent HUD has been released. github.com/<repo>/releases/latest redirects to
+/// the newest release's page, which names its tag; that avoids the API's 60-requests-an-hour limit, which
+/// everyone behind one office IP shares. This is the app's only network request, and Settings can turn it off.
 public enum UpdateCheck {
     public static let repo = "KylerHil/agent-hud"
     public static var latestURL: URL { URL(string: "https://api.github.com/repos/\(repo)/releases/latest")! }
@@ -11,6 +12,14 @@ public enum UpdateCheck {
         public var version: String
         public var page: URL
         public var notes: String?
+    }
+
+    /// `…/releases/tag/v1.2.0` → 1.2.0. Nil when there's no release (the redirect lands on /releases).
+    public static func release(fromPage url: URL) -> Release? {
+        let parts = url.pathComponents
+        guard let i = parts.lastIndex(of: "tag"), i + 1 < parts.count else { return nil }
+        let tag = parts[i + 1]
+        return Release(version: tag.hasPrefix("v") ? String(tag.dropFirst()) : tag, page: url, notes: nil)
     }
 
     public static func parse(_ data: Data) -> Release? {

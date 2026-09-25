@@ -16,4 +16,10 @@ final class UpdateCheckTests: XCTestCase {
         XCTAssertEqual(r?.page.absoluteString, "https://github.com/KylerHil/agent-hud/releases/tag/v1.2.0")
         XCTAssertNil(UpdateCheck.parse(Data(#"{"tag_name":"v2.0.0","prerelease":true}"#.utf8)))
     }
+
+    func testReadsTheVersionFromTheReleasePageRedirect() {
+        let r = UpdateCheck.release(fromPage: URL(string: "https://github.com/KylerHil/agent-hud/releases/tag/v1.2.0")!)
+        XCTAssertEqual(r?.version, "1.2.0")
+        XCTAssertNil(UpdateCheck.release(fromPage: URL(string: "https://github.com/KylerHil/agent-hud/releases")!))
+    }
 }

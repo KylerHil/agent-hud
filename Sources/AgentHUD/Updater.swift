@@ -71,6 +71,31 @@ final class Updater {
     func check() {
         guard status != .checking, status != .installing else { return }
         status = .checking
+        // The release page's redirect first (no rate limit); the API only if that fails.
+        var head = URLRequest(url: UpdateCheck.releasesPage, timeoutInterval: 20)
+        head.httpMethod = "HEAD"
+        head.setValue("AgentHUD/\(Self.currentVersion)", forHTTPHeaderField: "User-Agent")
+        URLSession.shared.dataTask(with: head) { _, response, _ in
+            let release = response?.url.flatMap(UpdateCheck.release(fromPage:))
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if let release { self.finish(release) } else { self.checkAPI() }
+                }
+            }
+        }.resume()
+    }
+
+    private func finish(_ release: UpdateCheck.Release) {
+        settings.lastUpdateCheck = Date().timeIntervalSince1970
+        if UpdateCheck.isNewer(release.version, than: Self.currentVersion) {
+            status = .available(release)
+            maybeAutoInstall(release)
+        } else {
+            status = .upToDate
+        }
+    }
+
+    private func checkAPI() {
         var req = URLRequest(url: UpdateCheck.latestURL, timeoutInterval: 20)
         req.setValue("AgentHUD/\(Self.currentVersion)", forHTTPHeaderField: "User-Agent")
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
@@ -85,6 +110,8 @@ final class Updater {
                         self.maybeAutoInstall(release)
                     } else if release != nil || code == 404 {
                         self.status = .upToDate
+                    } else if code == 403 || code == 429 {
+                        self.status = .failed("GitHub is rate-limiting this network; try again in an hour")
                     } else {
                         self.status = .failed(error?.localizedDescription ?? "GitHub returned \(code)")
                     }
