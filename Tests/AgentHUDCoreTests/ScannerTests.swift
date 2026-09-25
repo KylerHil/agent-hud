@@ -28,6 +28,35 @@ final class ScannerTests: XCTestCase {
         XCTAssertEqual(ProcessScanner.reconcile(store: store, processes: [proc(10), proc(12)]), [])
     }
 
+    func testHooklessProcessesInOneProjectShareOneRow() {
+        let store = SessionStore()
+        var procs = (40...44).map { proc(Int32($0), cwd: "/w/p") }
+        for i in procs.indices { procs[i].started = Date(timeIntervalSince1970: TimeInterval(i)) }
+        let first = ProcessScanner.reconcile(store: store, processes: procs, now: Date(timeIntervalSince1970: 1000))
+        XCTAssertEqual(first.count, 1)
+        XCTAssertEqual(first.first?.pid, 44, "the newest process stands for the group")
+        XCTAssertEqual(first.first?.title, "5 Claude processes without hooks")
+        first.forEach { store.apply($0) }
+        // Stable while nothing changes; the same row updates its count when one exits.
+        XCTAssertEqual(ProcessScanner.reconcile(store: store, processes: procs, now: Date(timeIntervalSince1970: 1003)), [])
+        let fewer = ProcessScanner.reconcile(store: store, processes: Array(procs.dropFirst()), now: Date(timeIntervalSince1970: 1006))
+        XCTAssertEqual(fewer.map(\.title), ["4 Claude processes without hooks"])
+        XCTAssertEqual(fewer.first?.pid, 44)
+    }
+
+    func testSessionThatNeverDidAnythingIsNeverActive() {
+        let store = SessionStore()
+        var e = AgentEvent(ts: 1, agent: .claude, event: "SessionStart", sessionId: "empty")
+        e.origin = "hook"
+        store.apply(e)
+        XCTAssertTrue(store.sessions["claude:empty"]!.neverActive)
+        var p = AgentEvent(ts: 2, agent: .claude, event: "UserPromptSubmit", sessionId: "empty")
+        p.origin = "hook"
+        p.prompt = "hi"
+        store.apply(p)
+        XCTAssertFalse(store.sessions["claude:empty"]!.neverActive)
+    }
+
     func testProcessesWithoutAFolderDoNotGetPlaceholders() {
         let store = SessionStore()
         XCTAssertEqual(ProcessScanner.reconcile(store: store, processes: [proc(30, cwd: nil), proc(31, cwd: "/")]), [])

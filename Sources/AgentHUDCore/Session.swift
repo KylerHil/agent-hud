@@ -210,6 +210,13 @@ public struct Session: Identifiable, Equatable, Sendable {
         return parts.joined(separator: " · ")
     }
 
+    /// Started, but nothing has happened in it: editors start a Claude process (and fire SessionStart) as
+    /// soon as a panel opens, before anyone types. Such sessions aren't worth a row until they do something.
+    public var neverActive: Bool {
+        hasHooks && turnStartedAt == nil && toolCalls == 0 && lastPrompt == nil && lastMessage == nil
+            && pending.isEmpty && base != .running && error == nil
+    }
+
     /// Oldest outstanding request, the one worth showing.
     public var primaryPending: PendingInput? { pending.values.min { $0.since < $1.since } }
 

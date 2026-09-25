@@ -282,10 +282,9 @@ struct ExpandedView: View {
     /// so the header never forces the panel wider than it is.
     private var header: some View {
         ViewThatFits(in: .horizontal) {
-            headerRow(title: true, compactToggle: false, menuLabel: true)
-            headerRow(title: true, compactToggle: false, menuLabel: false)
-            headerRow(title: false, compactToggle: false, menuLabel: false)
-            headerRow(title: false, compactToggle: true, menuLabel: false)
+            headerRow(title: true, compactToggle: false)
+            headerRow(title: false, compactToggle: false)
+            headerRow(title: false, compactToggle: true)
         }
         .padding(.leading, 12)
         .padding(.trailing, 6)
@@ -294,13 +293,13 @@ struct ExpandedView: View {
         .contentShape(Rectangle())
     }
 
-    private func headerRow(title: Bool, compactToggle: Bool, menuLabel: Bool) -> some View {
+    private func headerRow(title: Bool, compactToggle: Bool) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "eye").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
             if title { Text("Agent HUD").font(.system(size: 12, weight: .semibold)).lineLimit(1).fixedSize() }
             Spacer(minLength: 6)
             DensityToggle(settings: model.settings, compact: compactToggle)
-            PanelMenu(model: model, showLabel: menuLabel)
+            PanelMenu(model: model)
             IconButton(symbol: "chevron.up", help: "Collapse to pill") { model.settings.collapsed = true }
         }
     }
@@ -579,7 +578,8 @@ struct SessionRowView: View {
                         .fixedSize()
                 }
             }
-            if detailed || waiting || state == .stale || (state == .idle && session.error != nil) {
+            if detailed || waiting || state == .stale || (state == .idle && session.error != nil)
+                || (state == .unknown && session.title != nil) {
                 subtitle(state)
                     .padding(.leading, 14)
             }
@@ -708,6 +708,7 @@ struct SessionRowView: View {
             if session.isChat { return ("Reply ready", nil, false) }
             return (nil, session.lastMessage ?? session.title ?? session.lastPrompt, false)
         case .unknown:
+            if let t = session.title { return (nil, t + ": install hooks (Settings › Hooks) to see their state", false) }
             return (nil, "No hook events: started before hooks were installed?" + (session.pid.map { " · pid \($0)" } ?? ""), false)
         case .ended:
             return (nil, nil, false)
@@ -1424,8 +1425,6 @@ struct FinishedCard: View {
 /// Find, Today's time, Dashboard and Settings, behind one button in the header.
 struct PanelMenu: View {
     let model: AppModel
-    var showLabel = true
-    @State private var hovering = false
 
     var body: some View {
         Menu {
@@ -1439,20 +1438,14 @@ struct PanelMenu: View {
             Divider()
             Button { model.openSettings() } label: { Label("Settings…", systemImage: "gearshape") }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "line.3.horizontal").font(.system(size: 11, weight: .semibold))
-                if showLabel { Text("Menu").font(.system(size: 11, weight: .semibold)) }
-            }
-            .padding(.horizontal, showLabel ? 7 : 5)
-            .frame(height: 22)
-            .background(Color.primary.opacity(hovering ? 0.10 : 0.06), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .contentShape(Rectangle())
+            // A real (bordered) button, so it reads as something to click.
+            Text("Menu")
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .menuStyle(.button)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .menuIndicator(.visible)
         .fixedSize()
-        .foregroundStyle(.secondary)
-        .onHover { hovering = $0 }
         .help("Find, today's time, dashboard and settings")
         .accessibilityLabel("Menu")
     }

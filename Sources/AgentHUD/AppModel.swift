@@ -422,7 +422,7 @@ final class AppModel {
 
     private var sorted: [Session] {
         store.sorted(now: now, staleAfter: settings.staleAfter) { [lastOutput] in lastOutput[$0.id] }
-            .filter(isShown)
+            .filter { isShown($0) && !$0.neverActive }
     }
 
     /// Every session the panel may list, before the filter tab.
@@ -491,7 +491,7 @@ final class AppModel {
 
     var counts: (attention: Int, running: Int, idle: Int) {
         var a = 0, r = 0, i = 0
-        for s in store.sessions.values where isShown(s) {
+        for s in store.sessions.values where isShown(s) && !s.neverActive {
             switch displayState(s) {
             case .needsInput: a += 1
             case .running, .stale: r += 1

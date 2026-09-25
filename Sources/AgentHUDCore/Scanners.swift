@@ -35,6 +35,8 @@ public enum ProcessScanner {
         var events: [AgentEvent] = []
         let alive = Set(processes.map(\.pid))
         var claimed = Set<Int32>()
+        /// Placeholder rows already shown, by pid.
+        var placeholders: [Int32: Session] = [:]
         for s in store.sessions.values {
             guard let pid = s.pid else { continue }
             if s.state != .ended && !alive.contains(pid) {
@@ -43,25 +45,48 @@ public enum ProcessScanner {
                 e.origin = "scanner"
                 events.append(e)
             } else if s.state != .ended {
-                claimed.insert(pid)
+                if isPlaceholder(s) { placeholders[pid] = s } else { claimed.insert(pid) }
             }
         }
+        // Editors keep a Claude process per open panel, so one project can have many hookless processes.
+        // They get one row per project and app, not one each.
+        var groups: [String: [AgentProcess]] = [:]
         for p in processes where p.agent == .claude && !claimed.contains(p.pid) && p.hostKind != "claude-desktop" {
-            if let started = p.started, now.timeIntervalSince(started) < placeholderMinAge { continue }
+            if placeholders[p.pid] == nil, let started = p.started, now.timeIntervalSince(started) < placeholderMinAge { continue }
             // Without a working folder there's no project to show or window to jump to.
             guard let cwd = p.cwd, !cwd.isEmpty, cwd != "/" else { continue }
+            groups[ProjectRoot.root(of: cwd) + "|" + (p.hostApp ?? p.hostKind ?? ""), default: []].append(p)
+        }
+        var shown = Set<Int32>()
+        for ps in groups.values {
+            // Keep the row already shown, so it doesn't jump around; else the newest process.
+            let rep = ps.first { placeholders[$0.pid] != nil }
+                ?? ps.max { ($0.started ?? .distantPast) < ($1.started ?? .distantPast) }!
+            shown.insert(rep.pid)
+            let title = ps.count > 1 ? "\(ps.count) Claude processes without hooks" : nil
+            if let existing = placeholders[rep.pid], existing.title == title { continue }
             var e = AgentEvent(ts: now.timeIntervalSince1970, agent: .claude, event: "ProcessSeen",
-                               sessionId: "pid-\(p.pid)")
-            e.pid = p.pid
-            e.cwd = p.cwd
-            e.tty = p.tty
-            e.hostApp = p.hostApp
-            e.hostKind = p.hostKind
+                               sessionId: "pid-\(rep.pid)")
+            e.pid = rep.pid
+            e.cwd = rep.cwd
+            e.tty = rep.tty
+            e.hostApp = rep.hostApp
+            e.hostKind = rep.hostKind
+            e.title = title ?? (placeholders[rep.pid]?.title != nil ? "1 Claude process without hooks" : nil)
+            e.origin = "scanner"
+            events.append(e)
+        }
+        // Rows for processes now covered by another row (or by a hooked session) go.
+        for (pid, s) in placeholders where !shown.contains(pid) && alive.contains(pid) {
+            var e = AgentEvent(ts: now.timeIntervalSince1970, agent: s.agent, event: "ProcessExited", sessionId: s.sessionId)
             e.origin = "scanner"
             events.append(e)
         }
         return events
     }
+
+    /// A row made from a process alone, with no hook events behind it.
+    static func isPlaceholder(_ s: Session) -> Bool { !s.hasHooks && s.sessionId.hasPrefix("pid-") }
 }
 
 /// Infers Codex session state from ~/.codex/sessions rollout logs, for sessions the hooks don't cover
