@@ -21,6 +21,19 @@ enum Snapshot {
             render(PillView(model: model).padding(12).background(bg).environment(\.colorScheme, scheme),
                    to: "\(dir)/pill-\(scheme).png")
         }
+        // Grouped by project, collapsed and with the first multi-session project open.
+        let wasGrouped = model.settings.groupByProject
+        model.settings.groupByProject = true
+        render(ExpandedView(model: model, forSnapshot: true).frame(width: 360, height: 520).padding(12)
+            .background(Color(white: 0.12)).environment(\.colorScheme, .dark), to: "\(dir)/panel-grouped.png")
+        if let u = model.units.first(where: \.isProject) {
+            model.expandedProjects = [u.id]
+            render(ExpandedView(model: model, forSnapshot: true).frame(width: 360, height: 520).padding(12)
+                .background(Color(white: 0.12)).environment(\.colorScheme, .dark), to: "\(dir)/panel-grouped-open.png")
+            model.expandedProjects = []
+        }
+        model.settings.groupByProject = wasGrouped
+
         // The detail view for the busiest session, and Today, both in dark mode.
         if let s = model.rows.max(by: { $0.timeline.count < $1.timeline.count }) {
             model.detailID = s.id

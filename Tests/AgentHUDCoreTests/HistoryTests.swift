@@ -305,3 +305,24 @@ final class SortOrderTests: XCTestCase {
         XCTAssertEqual(order, ["long-wait", "short-wait", "new-idle", "mid-idle", "old-idle"])
     }
 }
+
+final class GroupByProjectTests: XCTestCase {
+    func testGroupsByRootKeepingUrgencyOrder() {
+        let store = SessionStore()
+        func ev(_ sid: String, _ name: String, _ t: Double, cwd: String, _ f: (inout AgentEvent) -> Void = { _ in }) {
+            var e = AgentEvent(ts: t, agent: .claude, event: name, sessionId: sid)
+            e.cwd = cwd
+            e.origin = "hook"
+            f(&e)
+            store.apply(e)
+        }
+        ev("a-idle", "Stop", 100, cwd: "/w/load-traxx")
+        ev("b-idle", "Stop", 110, cwd: "/w/other")
+        ev("a-work", "UserPromptSubmit", 120, cwd: "/w/load-traxx")
+        ev("a-wait", "PermissionRequest", 130, cwd: "/w/load-traxx") { $0.toolName = "Bash" }
+        let ordered = store.sorted(now: Date(timeIntervalSince1970: 200), staleAfter: 900)
+        let groups = Session.groupedByProject(ordered)
+        XCTAssertEqual(groups.map { $0.map(\.sessionId) }, [["a-wait", "a-work", "a-idle"], ["b-idle"]])
+        XCTAssertEqual(groups[0][0].state, .needsInput, "the row shows its most urgent session")
+    }
+}

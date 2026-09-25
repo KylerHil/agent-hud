@@ -264,22 +264,51 @@ final class AppModel {
         set { settings.panelFilter = newValue.rawValue }
     }
 
+    /// One row of the list: a single session, or (with "Group sessions by project") every session in a
+    /// project, most urgent first. The row shows its primary session, the most urgent one.
+    struct Unit: Identifiable {
+        var id: String
+        var sessions: [Session]
+        var primary: Session { sessions[0] }
+        var isProject: Bool { sessions.count > 1 }
+    }
+
     struct Group: Identifiable {
         var id: String { title }
         var title: String
-        var sessions: [Session]
+        var units: [Unit]
     }
+
+    /// Sessions in `ordered` (already most urgent first) collected by project, keeping that order.
+    /// Chats and sessions with no folder stay on their own.
+    func projectUnits(_ ordered: [Session]) -> [Unit] {
+        Session.groupedByProject(ordered).map { Unit(id: "project:" + $0[0].projectKey, sessions: $0) }
+    }
+
+    /// Every row the panel may list, before the filter tab.
+    var units: [Unit] {
+        settings.groupByProject ? projectUnits(rows) : rows.map { Unit(id: $0.id, sessions: [$0]) }
+    }
+
+    func state(_ u: Unit) -> SessionState { displayState(u.primary) }
 
     /// Needs you / Working / Idle, after the filter tab; empty groups dropped.
     var groups: [Group] {
-        let rows = rows.filter { filter.includes(displayState($0)) }
+        let units = units.filter { filter.includes(state($0)) }
         let defs: [(String, (SessionState) -> Bool)] = [
             ("Needs you", { $0 == .needsInput }),
             ("Working", { $0 == .running || $0 == .stale }),
             ("Idle", { ![.needsInput, .running, .stale].contains($0) }),
         ]
-        return defs.map { title, match in Group(title: title, sessions: rows.filter { match(displayState($0)) }) }
-            .filter { !$0.sessions.isEmpty }
+        return defs.map { title, match in Group(title: title, units: units.filter { match(state($0)) }) }
+            .filter { !$0.units.isEmpty }
+    }
+
+    /// Projects whose rows are open to show all their sessions. They start collapsed.
+    var expandedProjects: Set<String> = []
+
+    func toggleExpanded(_ u: Unit) {
+        if expandedProjects.contains(u.id) { expandedProjects.remove(u.id) } else { expandedProjects.insert(u.id) }
     }
 
     /// Live sessions for the menu bar and switcher, in panel order (ended ones left out).
@@ -287,7 +316,10 @@ final class AppModel {
         sorted.filter { displayState($0) != .ended }
     }
 
-    var menuBarStates: [SessionState] { menuBarSessions.map(displayState) }
+    /// One dot per session, or per project when grouping (colored by its most urgent session).
+    var menuBarStates: [SessionState] {
+        settings.groupByProject ? projectUnits(menuBarSessions).map(state) : menuBarSessions.map(displayState)
+    }
 
     var counts: (attention: Int, running: Int, idle: Int) {
         var a = 0, r = 0, i = 0

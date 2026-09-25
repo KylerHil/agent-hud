@@ -186,6 +186,11 @@ Agent HUD's hooks were in it.
 - **Everything happens in the panel.** The dashboard (chart icon) and settings (gear) open inside
   it, and it grows to fit them; nothing opens a separate window. CSV export saves straight to
   Downloads.
+- **Group sessions by project** (gear → General): one row per project instead of one per session,
+  so three VS Code sessions in one repo are one row. The row shows the project's most urgent
+  session (needs you, then working, then idle) and a colored circle per session. Projects start
+  collapsed: click the row to jump to that session, or ▸ to list them all. Tabs and menu bar dots
+  count projects; notifications and ⌃⌥Space search stay per session.
 - **Rows are named by project**: the git root of the folder the session started in (else that folder).
   When the agent `cd`s deeper, the row shows where it is: `Norco › norco-mobile`.
 - **Dashboard** (the chart button, the panel footer, or the menu) opens inside the panel, which grows

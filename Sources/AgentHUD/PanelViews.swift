@@ -296,11 +296,11 @@ struct ExpandedView: View {
     }
 
     private var tabs: some View {
-        let rows = model.rows
+        let units = model.units
         let current = model.filter
         return HStack(spacing: 2) {
             ForEach(PanelFilter.allCases, id: \.self) { f in
-                let n = rows.filter { f.includes(model.displayState($0)) }.count
+                let n = units.filter { f.includes(model.state($0)) }.count
                 Button { model.filter = f } label: {
                     HStack(spacing: 4) {
                         if f != .all {
@@ -416,15 +416,19 @@ struct ExpandedView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 5) {
                             Text(g.title.uppercased()).fontWeight(.bold)
-                            Text("\(g.sessions.count)")
+                            Text("\(g.units.count)")
                         }
                         .font(.system(size: 9.5))
                         .tracking(0.5)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 12)
                         .padding(.bottom, 1)
-                        ForEach(g.sessions) { s in
-                            SessionRowView(model: model, controller: controller, session: s)
+                        ForEach(g.units) { u in
+                            if u.isProject {
+                                SessionRowView(model: model, controller: controller, session: u.primary, unit: u)
+                            } else {
+                                SessionRowView(model: model, controller: controller, session: u.primary)
+                            }
                         }
                     }
                 }
@@ -463,15 +467,32 @@ struct SessionRowView: View {
     var controller: PanelController? = nil
     let session: Session
     var selected = false
+    /// Set when this row stands for a whole project (several sessions).
+    var unit: AppModel.Unit? = nil
     @State private var hovering = false
+
+    private var expanded: Bool { unit.map { model.expandedProjects.contains($0.id) } ?? false }
 
     var body: some View {
         let state = model.displayState(session)
         let waiting = state == .needsInput
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
+                if let unit {
+                    Button { withAnimation(.easeOut(duration: 0.15)) { model.toggleExpanded(unit) } } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .rotationEffect(.degrees(expanded ? 90 : 0))
+                            .frame(width: 12, height: 14)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help(expanded ? "Hide this project's sessions" : "Show all \(unit.sessions.count) sessions")
+                    .accessibilityLabel(expanded ? "Collapse \(session.projectName)" : "Show sessions in \(session.projectName)")
+                }
                 StateDot(state: state, halo: true)
-                AgentBadge(agent: session.agent)
+                ForEach(agents, id: \.self) { AgentBadge(agent: $0) }
                 Text(session.projectName)
                     .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1)
@@ -486,7 +507,8 @@ struct SessionRowView: View {
                         .truncationMode(.head)
                         .layoutPriority(-1)
                 }
-                if let host = session.hostLabel { SourceChip(label: host) }
+                if let unit { SessionDots(states: unit.sessions.map(model.displayState)) }
+                if let host = hostsLabel { SourceChip(label: host) }
                 if model.isMuted(session) {
                     Image(systemName: "bell.slash").font(.system(size: 9)).foregroundStyle(.secondary)
                 }
@@ -509,6 +531,15 @@ struct SessionRowView: View {
             }
             subtitle(state)
                 .padding(.leading, 14)
+            if let unit, expanded {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(unit.sessions) { s in ProjectSessionRow(model: model, controller: controller, session: s) }
+                }
+                .padding(.leading, 14)
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1).padding(.leading, 8)
+                }
+            } else if unit == nil {
             ForEach(session.sortedSubagents) { sub in
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.turn.down.right").font(.system(size: 8)).foregroundStyle(.tertiary)
@@ -522,6 +553,7 @@ struct SessionRowView: View {
                 }
                 .font(.system(size: 10))
                 .padding(.leading, 14)
+            }
             }
         }
         .opacity(state == .ended ? 0.5 : 1)
@@ -542,6 +574,21 @@ struct SessionRowView: View {
         }
         .contextMenu { SessionMenu(model: model, session: session) }
         .help(tooltip)
+    }
+
+    /// A project row lists each agent once, and each app once ("Claude app · VS Code").
+    private var agents: [AgentKind] {
+        guard let unit else { return [session.agent] }
+        var seen: [AgentKind] = []
+        for s in unit.sessions where !seen.contains(s.agent) { seen.append(s.agent) }
+        return seen
+    }
+
+    private var hostsLabel: String? {
+        guard let unit else { return session.hostLabel }
+        var seen: [String] = []
+        for s in unit.sessions { if let h = s.hostLabel, !seen.contains(h) { seen.append(h) } }
+        return seen.isEmpty ? nil : seen.joined(separator: " · ")
     }
 
     private func background(_ waiting: Bool) -> Color {
@@ -939,5 +986,111 @@ struct SearchField: View {
         let s = rows[min(model.searchSelection, rows.count - 1)]
         model.endSearch()
         Focuser.focus(s)
+    }
+}
+
+// MARK: - Projects
+
+/// One small circle per session, colored by its state, for a project row.
+struct SessionDots: View {
+    let states: [SessionState]
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(Array(states.prefix(8).enumerated()), id: \.offset) { _, st in
+                Circle().fill(st.color).frame(width: 6, height: 6)
+            }
+            if states.count > 8 {
+                Text("+\(states.count - 8)").font(.system(size: 8.5, weight: .semibold)).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 3)
+        .background(Color.primary.opacity(0.07), in: Capsule())
+        .fixedSize()
+        .help(summary)
+        .accessibilityLabel(summary)
+    }
+
+    private var summary: String {
+        var parts: [String] = []
+        let n = states.filter { $0 == .needsInput }.count, w = states.filter { $0 == .running || $0 == .stale }.count
+        if n > 0 { parts.append("\(n) need\(n == 1 ? "s" : "") you") }
+        if w > 0 { parts.append("\(w) working") }
+        let rest = states.count - n - w
+        if rest > 0 { parts.append("\(rest) idle") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// A session inside an expanded project row: compact, and clicking it jumps to that session.
+struct ProjectSessionRow: View {
+    let model: AppModel
+    var controller: PanelController? = nil
+    let session: Session
+    @State private var hovering = false
+
+    var body: some View {
+        let state = model.displayState(session)
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 6) {
+                StateDot(state: state, size: 6)
+                Text(label(state))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(state == .needsInput ? Color.orange : .primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let host = session.hostLabel { SourceChip(label: host) }
+                Spacer(minLength: 4)
+                Text(time(state))
+                    .font(.system(size: 10).monospacedDigit())
+                    .foregroundStyle(state == .needsInput ? Color.orange : .secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            if let d = detail(state) {
+                Text(d)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .padding(.leading, 12)
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(hovering ? Color.primary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture { if controller?.didDrag != true { Focuser.focus(session) } }
+        .contextMenu { SessionMenu(model: model, session: session) }
+        .help(session.cwd ?? "")
+    }
+
+    /// What tells this session apart from its siblings: why it waits, its subfolder, title, or last prompt.
+    private func label(_ state: SessionState) -> String {
+        if state == .needsInput, let p = session.primaryPending { return p.reason }
+        if let sub = session.subpath { return "› " + sub }
+        return session.title ?? session.lastPrompt ?? session.agent.displayName
+    }
+
+    private func detail(_ state: SessionState) -> String? {
+        let d: String?
+        switch state {
+        case .needsInput: d = session.primaryPending?.detail
+        case .running, .stale: d = session.currentDetail
+        default: d = session.error ?? session.lastMessage
+        }
+        // Paths inside the project read shorter relative to it.
+        guard let root = session.root else { return d }
+        return d?.replacingOccurrences(of: root + "/", with: "")
+    }
+
+    private func time(_ state: SessionState) -> String {
+        let d = shortDuration(model.now.timeIntervalSince(model.since(session)))
+        switch state {
+        case .needsInput: return "waiting \(d)"
+        case .running: return d
+        default: return "\(state.verb) \(d)"
+        }
     }
 }

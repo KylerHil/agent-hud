@@ -121,6 +121,27 @@ public struct Session: Identifiable, Equatable, Sendable {
         return (dir as NSString).lastPathComponent
     }
 
+    /// What "group by project" groups on: the project root (so subfolders and different apps join their
+    /// project). Chats and sessions with no folder stand alone.
+    public var projectKey: String {
+        if isChat { return id }
+        return root ?? cwd.flatMap { $0 == "/" ? nil : $0 } ?? id
+    }
+
+    /// Sessions collected by project, keeping the given order (most urgent first), so each group's first
+    /// session is its most urgent.
+    public static func groupedByProject(_ ordered: [Session]) -> [[Session]] {
+        var groups: [[Session]] = []
+        var index: [String: Int] = [:]
+        for s in ordered {
+            if let i = index[s.projectKey] { groups[i].append(s) } else {
+                index[s.projectKey] = groups.count
+                groups.append([s])
+            }
+        }
+        return groups
+    }
+
     /// The current folder relative to the project root, when the agent is working below it ("apps/mobile").
     public var subpath: String? {
         guard let root, let cwd, cwd != root, ProjectRoot.contains(root, cwd) else { return nil }

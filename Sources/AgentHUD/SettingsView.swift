@@ -62,6 +62,11 @@ struct SettingsView: View {
                         .labelsHidden()
                         .frame(width: 180)
                 }
+                VStack(alignment: .leading, spacing: 3) {
+                    Toggle("Group sessions by project", isOn: $settings.groupByProject)
+                    Text("One row per project, showing its most urgent session and a colored dot for each session. Projects start collapsed: click to jump to that session, or ▸ to see the rest.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
                 Toggle("Show idle sessions", isOn: $settings.showIdle)
                 Toggle("Pulse when a session needs input", isOn: $settings.pulse)
                 Stepper("Mark running sessions stale after \(Int(settings.staleMinutes)) min",

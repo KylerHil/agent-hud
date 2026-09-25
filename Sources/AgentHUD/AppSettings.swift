@@ -26,6 +26,8 @@ final class AppSettings {
     /// Experimental: ordinary chats in Claude and ChatGPT, through Accessibility.
     var watchChats: Bool { didSet { defaults.set(watchChats, forKey: "watchChats") } }
     var hotkeysEnabled: Bool { didSet { defaults.set(hotkeysEnabled, forKey: "hotkeysEnabled") } }
+    /// One row per project instead of one per session.
+    var groupByProject: Bool { didSet { defaults.set(groupByProject, forKey: "groupByProject") } }
     var checkForUpdates: Bool { didSet { defaults.set(checkForUpdates, forKey: "checkForUpdates") } }
     var installUpdatesAutomatically: Bool {
         didSet { defaults.set(installUpdatesAutomatically, forKey: "installUpdatesAutomatically") }
@@ -46,7 +48,7 @@ final class AppSettings {
             "notifyNeedsInput": true, "notifyFinished": false, "playSound": true, "remindMinutes": 0.0,
             "trackProcesses": true, "panelFilter": "all", "watchClaudeDesktop": true, "watchChatGPT": true,
             "watchChats": false, "hotkeysEnabled": true, "pausedUntil": 0.0, "idleGapMinutes": 10.0,
-            "dashboardRange": "today", "checkForUpdates": true, "installUpdatesAutomatically": true,
+            "dashboardRange": "today", "checkForUpdates": true, "groupByProject": false, "installUpdatesAutomatically": true,
             "lastUpdateCheck": 0.0,
         ])
         opacity = defaults.double(forKey: "opacity")
@@ -66,6 +68,7 @@ final class AppSettings {
         watchChatGPT = defaults.bool(forKey: "watchChatGPT")
         watchChats = defaults.bool(forKey: "watchChats")
         hotkeysEnabled = defaults.bool(forKey: "hotkeysEnabled")
+        groupByProject = defaults.bool(forKey: "groupByProject")
         checkForUpdates = defaults.bool(forKey: "checkForUpdates")
         installUpdatesAutomatically = defaults.bool(forKey: "installUpdatesAutomatically")
         lastUpdateCheck = defaults.double(forKey: "lastUpdateCheck")
