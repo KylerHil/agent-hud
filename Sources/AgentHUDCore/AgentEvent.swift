@@ -45,6 +45,8 @@ public struct AgentEvent: Codable, Equatable, Sendable {
     public var hostKind: String?
     /// Conversation title, when the host app names it (Claude desktop, chat windows).
     public var title: String?
+    /// A URL that opens this exact session in its host app (Claude desktop: claude://code/continue?session=…).
+    public var openURL: String?
     /// `hook`, `fake`, `scanner`, `rollout`, `desktop`, `chat`, `probe`.
     public var origin: String?
 

@@ -200,6 +200,11 @@ public final class ClaudeDesktopScanner {
         public var title: String?
         public var transcriptPath: String?
         public var lastActivity: Date
+        /// Claude.app's own id for the session (`local_…`), which its deep links take.
+        public var localId: String?
+
+        /// Opens this session in Claude.app.
+        public var openURL: String? { localId.map { "claude://code/continue?session=\($0)" } }
     }
 
     private let root: URL
@@ -228,6 +233,7 @@ public final class ClaudeDesktopScanner {
                         info = hit.info
                     } else {
                         info = (try? Data(contentsOf: URL(fileURLWithPath: path))).flatMap { Self.parse($0, projects: projects) }
+                        if info?.localId == nil { info?.localId = (name as NSString).deletingPathExtension }
                         cache[path] = (mtime, info)
                     }
                     guard let info else { continue }
@@ -246,9 +252,10 @@ public final class ClaudeDesktopScanner {
         let cwd = obj["cwd"] as? String
         let ms = (obj["lastActivityAt"] as? Double) ?? (obj["createdAt"] as? Double) ?? 0
         let title = (obj["title"] as? String).flatMap { $0.isEmpty ? nil : $0.preview(80) }
+        let local = (obj["sessionId"] as? String).flatMap { $0.hasPrefix("local_") ? $0 : nil }
         return Info(sessionId: id, cwd: cwd, title: title,
                     transcriptPath: transcriptPath(projects: projects, cwd: cwd, sessionId: id),
-                    lastActivity: Date(timeIntervalSince1970: ms / 1000))
+                    lastActivity: Date(timeIntervalSince1970: ms / 1000), localId: local)
     }
 
     /// `~/.claude/projects/<cwd with every non-alphanumeric as "-">/<id>.jsonl`, else a search of all projects.
@@ -278,6 +285,7 @@ public final class ClaudeDesktopScanner {
                 e.cwd = d.cwd
                 e.transcriptPath = d.transcriptPath
                 e.title = d.title
+                e.openURL = d.openURL
                 e.hostKind = "claude-desktop"
                 e.hostApp = ProcTools.defaultAppPath(forKind: "claude-desktop")
                 e.origin = "desktop"
@@ -288,7 +296,9 @@ public final class ClaudeDesktopScanner {
                 continue
             }
             if let s = existing, s.hasHooks {
-                if let t = d.title, s.title != t { events.append(event("SessionTitle")) }
+                if (d.title != nil && s.title != d.title) || (d.openURL != nil && s.openURL != d.openURL) {
+                    events.append(event("SessionTitle"))
+                }
                 continue
             }
             let written = d.transcriptPath.flatMap(TranscriptProbe.modificationDate) ?? .distantPast
@@ -298,7 +308,7 @@ public final class ClaudeDesktopScanner {
             let running = open && age < 600
             if existing == nil && !running && age > 2 * 3600 { continue }
             let wanted: SessionState = running ? .running : .idle
-            if let s = existing, s.state == wanted, s.title == d.title { continue }
+            if let s = existing, s.state == wanted, s.title == d.title, s.openURL == d.openURL { continue }
             events.append(event(running ? "RolloutRunning" : "RolloutIdle"))
         }
         return events

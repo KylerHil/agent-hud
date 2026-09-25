@@ -85,6 +85,8 @@ public struct Session: Identifiable, Equatable, Sendable {
     public var origin: String?
     /// Conversation title from the host app, when it has one.
     public var title: String?
+    /// Opens this exact session in its host app, when the app has such a link.
+    public var openURL: String?
 
     /// Most recent first-class events, oldest first, capped at `timelineLimit`.
     public var timeline: [TimelineEntry] = []
@@ -98,6 +100,15 @@ public struct Session: Identifiable, Equatable, Sendable {
     /// When the current (or last) turn began, and how long the last finished one took.
     public var turnStartedAt: Date?
     public var lastTurnDuration: TimeInterval?
+
+    public init(id: String, agent: AgentKind, sessionId: String, base: SessionState, stateSince: Date, lastEventAt: Date) {
+        self.id = id
+        self.agent = agent
+        self.sessionId = sessionId
+        self.base = base
+        self.stateSince = stateSince
+        self.lastEventAt = lastEventAt
+    }
 
     public var state: SessionState {
         if base == .ended { return .ended }

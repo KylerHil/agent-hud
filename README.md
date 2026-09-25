@@ -238,8 +238,11 @@ echo '{"hook_event_name":"PermissionRequest","session_id":"t1","cwd":"/tmp/demo"
   in Claude are detected from the transcript within a few seconds.
 - **Stuck on NEEDS INPUT after denying a prompt.** It clears on the next tool batch, turn end, or
   prompt. Right-click → Dismiss removes a row immediately (it comes back with the next event).
-- **Clicking a row does nothing.** For Terminal/iTerm2, allow Agent HUD under System Settings →
-  Privacy & Security → Automation. VS Code sessions are focused by opening their folder.
+- **Clicking a row does nothing.** The first click on a Terminal/iTerm2 session asks to let Agent HUD
+  control that app; allow it and click again. If you said no, Agent HUD opens System Settings →
+  Privacy & Security → Automation for you. Under tmux, the session has to be attached in some terminal
+  (`tmux attach`). To see exactly what a click does, find the session's tty (`tty` in that pane) and run
+  `/Applications/AgentHUD.app/Contents/MacOS/AgentHUD --debug-focus /dev/ttys012`.
 - **No notifications.** System Settings → Notifications → Agent HUD. With notifications off,
   the sound setting still plays a sound.
 - **Panel off-screen.** It returns to the main screen automatically when its saved position isn't

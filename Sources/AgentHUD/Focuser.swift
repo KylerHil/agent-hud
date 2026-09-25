@@ -3,10 +3,26 @@ import AppKit
 
 /// Brings a session's window to the front, as precisely as the host app allows.
 enum Focuser {
+    /// Steps taken by the last focus, for `AgentHUD --debug-focus`.
+    static var trace: [String] = []
+    private static var sentToAutomationSettings = false
+
+    static func note(_ s: String) {
+        trace.append(s)
+        NSLog("Agent HUD focus: \(s)")
+    }
+
     static func focus(_ s: Session) {
-        // tmux: select the pane, then bring forward whichever terminal is attached to it.
-        if let tty = s.tty, s.hostKind == "tmux" || s.hostKind == nil, case .some(let client) = Tmux.select(tty: tty) {
-            if let client { focusTerminal(tty: client.tty, pid: client.pid) }
+        trace = []
+        note("session \(s.projectName) host=\(s.hostKind ?? "none") tty=\(s.tty ?? "none") pid=\(s.pid.map(String.init) ?? "none")")
+        // tmux first, whatever the session says its host is: under tmux the agent's tty is a pane, which no
+        // terminal tab has, and a host recorded as "Terminal" (tmux passes TERM_PROGRAM through) would
+        // just activate Terminal and show nothing new.
+        if let tty = s.tty, !s.isDesktop, focusTmux(tty: tty) { return }
+        // Claude desktop: open that exact session, not just the app (which may already be in front).
+        if let link = s.openURL, let url = URL(string: link) {
+            note("opening \(link)")
+            NSWorkspace.shared.open(url)
             return
         }
         switch s.hostKind {
@@ -35,17 +51,39 @@ enum Focuser {
         NSSound.beep()
     }
 
+    /// The tmux pane with this tty: switch the attached client to it, then bring that terminal forward.
+    static func focusTmux(tty: String) -> Bool {
+        guard let bin = Tmux.binary else { note("tmux: not installed"); return false }
+        let panes = Tmux.panes(), clients = Tmux.clients()
+        note("tmux: \(bin), \(panes.count) panes, \(clients.count) clients")
+        guard let hit = Tmux.locate(tty: tty, panes: panes, clients: clients) else {
+            note("tmux: no pane has \(tty)")
+            return false
+        }
+        note("tmux: pane \(hit.pane.paneID) in session \(hit.pane.session); client \(hit.client.map { "\($0.tty) on \($0.session)" } ?? "none attached")")
+        Tmux.select(tty: tty)
+        if let c = hit.client {
+            if !focusTerminal(tty: c.tty, pid: c.pid) { note("tmux: couldn't bring the client's terminal forward") }
+        } else {
+            note("tmux: session isn't attached anywhere; run `tmux attach -t \(hit.pane.session)`")
+            NSSound.beep()
+        }
+        return true
+    }
+
     /// Terminal or iTerm2 tab with this tty, else the app that owns the process.
     @discardableResult
     static func focusTerminal(tty: String, pid: Int32?) -> Bool {
         let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
-        if running.contains("com.apple.Terminal"), runScript(terminalScript(tty: tty)) { return true }
-        if running.contains("com.googlecode.iterm2"), runScript(itermScript(tty: tty)) { return true }
+        if running.contains("com.apple.Terminal"), runScript(terminalScript(tty: tty)) { note("Terminal tab \(tty)"); return true }
+        if running.contains("com.googlecode.iterm2"), runScript(itermScript(tty: tty)) { note("iTerm2 session \(tty)"); return true }
         if let pid, let app = ProcTools.ancestry(from: pid, agent: nil, env: [:]).hostApp,
            FileManager.default.fileExists(atPath: app) {
+            note("activating \(app)")
             NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: app), configuration: .init())
             return true
         }
+        note("no terminal found for \(tty)")
         return false
     }
 
@@ -68,7 +106,14 @@ enum Focuser {
     private static func runScript(_ source: String) -> Bool {
         var error: NSDictionary?
         let result = NSAppleScript(source: source)?.executeAndReturnError(&error)
-        if let error { NSLog("Agent HUD focus script failed: \(error)") }
+        if let error {
+            note("AppleScript failed: \(error[NSAppleScript.errorMessage] ?? error)")
+            // -1743: the user said no (or hasn't been asked yet) to Automation. Show where to allow it, once.
+            if (error[NSAppleScript.errorNumber] as? Int) == -1743, !sentToAutomationSettings {
+                sentToAutomationSettings = true
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")!)
+            }
+        }
         return result?.booleanValue ?? false
     }
 

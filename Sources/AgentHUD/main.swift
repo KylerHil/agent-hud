@@ -8,6 +8,17 @@ MainActor.assumeIsolated {
         Snapshot.run(dir: CommandLine.arguments[i + 1])
         exit(0)
     }
+    // `AgentHUD --debug-focus <tty>`: run the click-to-focus logic for a tty and print each step.
+    if let i = CommandLine.arguments.firstIndex(of: "--debug-focus"), i + 1 < CommandLine.arguments.count {
+        var tty = CommandLine.arguments[i + 1]
+        if !tty.hasPrefix("/dev/") { tty = "/dev/" + tty }
+        var s = Session(id: "debug", agent: .claude, sessionId: "debug", base: .idle, stateSince: Date(), lastEventAt: Date())
+        s.tty = tty
+        s.hostKind = CommandLine.arguments.dropFirst(i + 2).first
+        Focuser.focus(s)
+        Focuser.trace.forEach { print($0) }
+        exit(0)
+    }
     // `AgentHUD --history [days]`: index transcripts and print the report, for checking numbers by hand.
     if let i = CommandLine.arguments.firstIndex(of: "--history") {
         let days = i + 1 < CommandLine.arguments.count ? Int(CommandLine.arguments[i + 1]) ?? 7 : 7

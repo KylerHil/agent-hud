@@ -58,6 +58,7 @@ public final class SessionStore {
         if let v = e.hostApp { s.hostApp = v }
         if let v = e.hostKind { s.hostKind = v }
         if let v = e.title { s.title = v }
+        if let v = e.openURL { s.openURL = v }
         if e.origin == "hook" || e.origin == "fake" { s.hasHooks = true }
         s.origin = s.origin ?? e.origin
         // A title update is bookkeeping, not a sign of life.

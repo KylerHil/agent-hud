@@ -140,6 +140,7 @@ final class DesktopSourceTests: XCTestCase {
         XCTAssertEqual(s.state, .running)
         XCTAssertEqual(s.title, "Fix the build")
         XCTAssertEqual(s.hostLabel, "Claude app")
+        XCTAssertEqual(s.openURL, "claude://code/continue?session=local_1", "clicking opens that session in Claude.app")
         XCTAssertEqual(ClaudeDesktopScanner.reconcile(store: store, sessions: found, appRunning: true, now: now), [])
 
         // The assistant ends its turn.

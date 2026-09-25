@@ -38,7 +38,8 @@ final class TmuxTests: XCTestCase {
     }
 
     func testHostKindForTmux() {
-        XCTAssertEqual(Session(id: "x", agent: .claude, sessionId: "x", hostKind: "tmux", base: .idle,
-                               stateSince: Date(), lastEventAt: Date()).hostLabel, "tmux")
+        var s = Session(id: "x", agent: .claude, sessionId: "x", base: .idle, stateSince: Date(), lastEventAt: Date())
+        s.hostKind = "tmux"
+        XCTAssertEqual(s.hostLabel, "tmux")
     }
 }
