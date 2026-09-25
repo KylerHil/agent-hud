@@ -6,6 +6,35 @@ import SwiftUI
 /// for checking the UI without screen-recording permission.
 @MainActor
 enum Snapshot {
+    static func quickAnswers(dir: String) {
+        let model = AppModel(settings: AppSettings())
+        let sample = """
+        # Authentication plan
+
+        ## Open questions
+        1. Which storage should the first version use?
+           a) SQLite, stored locally
+           b) PostgreSQL, shared by the team
+        3. How long should inactive sessions remain signed in?
+        """
+        let path = URL(fileURLWithPath: dir).appendingPathComponent("sample-plan.md")
+        try? FileManager.default.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? sample.write(to: path, atomically: true, encoding: .utf8)
+        var event = AgentEvent(agent: .claude, event: "Stop", sessionId: "quick-answers-demo")
+        event.cwd = dir
+        event.origin = "fake"
+        model.ingest([event], replay: true)
+        guard let source = QuickQuestionScanner.file(path: path.path, sessionID: "claude:quick-answers-demo") else { return }
+        model.quickAnswers.loadSnapshot([source])
+        model.mode = .questions
+        for scheme in [ColorScheme.light, .dark] {
+            renderNative(QuickAnswersView(model: model, forSnapshot: true)
+                .background(scheme == .dark ? Color(white: 0.12) : Color(white: 0.96))
+                .environment(\.colorScheme, scheme), scheme: scheme,
+                to: "\(dir)/quick-answers-\(scheme).png")
+        }
+    }
+
     static func run(dir: String) {
         let model = AppModel(settings: AppSettings())
         let tailer = EventTailer { events, _ in MainActor.assumeIsolated { model.ingest(events, replay: true) } }
@@ -106,6 +135,7 @@ enum Snapshot {
                 .background(Color(white: 0.12)).environment(\.colorScheme, .dark), to: "\(dir)/dashboard-\(range.rawValue).png")
             model.mode = .list
         }
+        quickAnswers(dir: dir)
     }
 
     /// The menu-bar dots for the given states, on a menu-bar-like strip, light and dark.
@@ -139,6 +169,25 @@ enum Snapshot {
         }
         NSGraphicsContext.restoreGraphicsState()
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        print("wrote \(path)")
+    }
+
+    /// AppKit-backed controls (TextField, Picker, Menu) need a hosting view, not ImageRenderer.
+    private static func renderNative(_ view: some View, scheme: ColorScheme, to path: String) {
+        _ = NSApplication.shared
+        let size = NSSize(width: 760, height: 680)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+        let hosting = NSHostingView(rootView: view)
+        hosting.frame = NSRect(origin: .zero, size: size)
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return }
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: URL(fileURLWithPath: path))
         print("wrote \(path)")
     }
 

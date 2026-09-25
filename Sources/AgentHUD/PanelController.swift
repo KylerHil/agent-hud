@@ -38,6 +38,7 @@ final class PanelController {
         case .list, .today: "panelSize" // Today opens in the list's place, at its size
         case .dashboard: "dashboardSize"
         case .settings: "settingsSize"
+        case .questions: "questionsSize"
         }
     }
 
@@ -46,6 +47,7 @@ final class PanelController {
         case .list, .today: defaultSize
         case .dashboard: CGSize(width: 800, height: 720)
         case .settings: CGSize(width: 580, height: 600)
+        case .questions: CGSize(width: 760, height: 660)
         }
     }
     static let minSize = CGSize(width: 260, height: 160)

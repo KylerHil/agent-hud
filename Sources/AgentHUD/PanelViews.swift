@@ -248,6 +248,8 @@ struct ExpandedView: View {
                 DashboardView(model: model, forSnapshot: forSnapshot)
             } else if model.mode == .today {
                 TodayView(model: model, forSnapshot: forSnapshot)
+            } else if model.mode == .questions {
+                QuickAnswersView(model: model, forSnapshot: forSnapshot)
             } else if model.mode == .settings {
                 PanelSettingsView(model: model)
             } else if let id = model.detailID, let s = model.store.sessions[id] {
@@ -299,6 +301,12 @@ struct ExpandedView: View {
             if title { Text("Agent HUD").font(.system(size: 12, weight: .semibold)).lineLimit(1).fixedSize() }
             Spacer(minLength: 6)
             DensityToggle(settings: model.settings, compact: compactToggle)
+            if model.quickAnswers.count > 0 {
+                Button { model.openQuestions() } label: {
+                    Label("\(model.quickAnswers.count)", systemImage: "text.bubble")
+                        .font(.system(size: 10.5))
+                }.buttonStyle(.bordered).controlSize(.small).help("Detected questions · Quick answers")
+            }
             PanelMenu(model: model)
             IconButton(symbol: "chevron.up", help: "Collapse to pill") { model.settings.collapsed = true }
         }
@@ -776,6 +784,7 @@ struct SessionMenu: View {
 
     var body: some View {
         Button("Show Details") { model.detailID = session.id }
+        if !session.isChat { Button("Quick Answers…") { model.openQuestions(sessionID: session.id) } }
         Button("Bring to Front") { model.jump(session) }
         Button("Open Folder in Finder") { Focuser.openFolder(session) }
         Divider()

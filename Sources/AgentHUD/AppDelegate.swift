@@ -29,6 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyHotKeys()
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        model.quickAnswers.save()
+    }
+
     /// Find a session (default ⌃⌥Space) and show/hide the panel (default ⌃⌥A); both set in Settings.
     private func applyHotKeys() {
         HotKeys.shared.unregisterAll()

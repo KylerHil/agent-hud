@@ -2,8 +2,8 @@
 
 A tiny native macOS floating panel that shows every running Claude Code and Codex session, in
 terminals, editors, the Claude desktop app and the ChatGPT desktop app, what state it's in, and
-pings you when one is waiting on you. You answer prompts in the agent itself; Agent HUD only
-watches and gets you there.
+pings you when one is waiting on you. Quick Answers gathers questions from coding chats and Markdown
+plans so you can prepare one reply, copy it, and open the agent to paste and send it.
 
 ```
 ┌ 👁 Agent HUD                       ⌕  ▥  ⚙  ⌃ ┐
@@ -243,6 +243,15 @@ Agent HUD's hooks were in it.
 - **Settings:** which sessions to show (terminals, tmux, editors, desktop apps), opacity (the panel
   goes fully opaque on hover), pulse, idle sessions, stale and ended timings, the Claude context
   window (Automatic reads your 1M models from `~/.claude.json`), notifications (needs input, finished, sound, re-remind interval), launch at login.
+
+## Quick Answers
+
+**Menu → Quick Answers** collects open questions from Claude Code and Codex coding transcripts and
+associated Markdown plans. Fill in answers beside each question, preview a reply that preserves the
+original numbering, then **Copy & open agent** to paste and send it in the agent. **Add plan…** picks
+a Markdown file when it wasn't linked in the conversation. Drafts stay local; copying doesn't mark
+questions answered or change the plan. See [Quick Answers](docs/QUICK_ANSWERS.md) for supported sources,
+detection limits, and the feasibility of future direct replies.
 
 ## Testing without agents
 

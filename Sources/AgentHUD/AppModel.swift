@@ -4,10 +4,10 @@ import Observation
 
 /// What the panel is showing. Everything lives in the one panel; nothing opens a window of its own.
 enum PanelMode: Equatable {
-    case list, today, dashboard, settings
+    case list, today, dashboard, settings, questions
 
     /// The dashboard and settings are roomier than the list, so the panel grows for them.
-    var isLarge: Bool { self == .dashboard || self == .settings }
+    var isLarge: Bool { self == .dashboard || self == .settings || self == .questions }
 }
 
 enum SettingsTab: Hashable {
@@ -36,6 +36,7 @@ enum PaletteItem: Identifiable {
 final class AppModel {
     let store = SessionStore()
     let activity = ActivityLog()
+    let quickAnswers = QuickAnswersModel()
     let settings: AppSettings
     private(set) var now = Date()
 
@@ -93,6 +94,19 @@ final class AppModel {
     }
 
     func openDashboard() { open(.dashboard) }
+
+    var questionSessions: [Session] {
+        store.sessions.values.filter { !$0.isChat && $0.state != .ended && isShown($0) && !isHidden($0) }
+            .sorted { $0.projectName < $1.projectName }
+    }
+
+    func openQuestions(sessionID: String? = nil) {
+        quickAnswers.sessionFilter = sessionID
+        quickAnswers.selection = quickAnswers.visible.first
+        open(.questions)
+        quickAnswers.refresh(sessions: questionSessions, force: true)
+        actions.focusPanel()
+    }
 
     func openSettings(_ tab: SettingsTab? = nil) {
         if let tab { settingsTab = tab }
@@ -293,6 +307,7 @@ final class AppModel {
             guard let tr = store.apply(e), let s = store.sessions[tr.sessionID] else { continue }
             activity.record(tr, session: s)
             trackFinished(tr, replay: replay)
+            if !replay, tr.from == .running, tr.to != .running { questionsStale = true }
             // Replayed history and events that are old news should update state silently.
             if !replay, Date().timeIntervalSince(e.date) < 60, isShown(s) {
                 onTransition?(tr, s)
@@ -301,6 +316,9 @@ final class AppModel {
     }
 
     /// Scanner and probes post synthetic events through the log so a restart replays the same history.
+    /// A turn ended since the last question scan.
+    @ObservationIgnored private var questionsStale = false
+
     func post(_ event: AgentEvent) {
         EventLog.append(event)
         tailer?.poll()
@@ -317,6 +335,9 @@ final class AppModel {
         if settings.trackProcesses, tickCount % 3 == 1 { scan() }
         if tickCount % 3 == 2 { pollChats() }
         probeTranscripts()
+        if questionsStale { questionsStale = false; quickAnswers.refresh(sessions: questionSessions, force: true) }
+        // Turn ends trigger a scan (see ingest); this catches plans edited outside a turn.
+        if tickCount % 60 == 0 { quickAnswers.refresh(sessions: questionSessions) }
         store.prune(now: now, endedRetention: settings.endedRetention)
         if tickCount % 600 == 0 { activity.prune(before: now.addingTimeInterval(-36 * 3600)) }
         if tickCount % 30 == 1 { refreshLegacyHooks() }
@@ -340,14 +361,27 @@ final class AppModel {
             events += ProcessScanner.approvals(store: store, table: ProcTools.allProcesses(), now: now)
         }
         let codexAlive = procs.contains { $0.agent == .codex }
+        let openRollouts = Self.openRollouts(procs.filter { $0.agent == .codex })
         events += RolloutScanner.reconcile(store: store, rollouts: rollouts.recent(now: now),
-                                           codexAlive: codexAlive, now: now)
+                                           codexAlive: codexAlive, openRollouts: openRollouts, now: now)
         if settings.watchClaudeDesktop {
             let running = ProcTools.isAppRunning(executableName: "Claude", bundleName: "Claude.app")
             events += ClaudeDesktopScanner.reconcile(store: store, sessions: running ? desktop.recent(now: now) : [],
                                                      appRunning: running, now: now)
         }
         post(events)
+    }
+
+    /// Names of the rollout files the Codex processes hold open (unique: a timestamp and the thread id),
+    /// or nil if any of them couldn't be inspected.
+    private static func openRollouts(_ procs: [ProcessScanner.AgentProcess]) -> Set<String>? {
+        var paths = Set<String>()
+        for p in procs {
+            guard let files = ProcTools.openFiles(p.pid) else { return nil }
+            paths.formUnion(files.map { ($0 as NSString).lastPathComponent }
+                .filter { $0.hasPrefix("rollout-") && $0.hasSuffix(".jsonl") })
+        }
+        return paths
     }
 
     /// Experimental chat watching. Accessibility calls are slow, so they run off the main thread.
