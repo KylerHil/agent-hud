@@ -64,6 +64,26 @@ public enum ProcTools {
         }
     }
 
+    /// Paths of the regular files a process has open, or nil when it can't be inspected.
+    public static func openFiles(_ pid: pid_t) -> [String]? {
+        let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        guard bytes > 0 else { return nil }
+        let stride = MemoryLayout<proc_fdinfo>.stride
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(bytes) / stride + 16)
+        let filled = fds.withUnsafeMutableBytes { proc_pidinfo(pid, PROC_PIDLISTFDS, 0, $0.baseAddress, Int32($0.count)) }
+        guard filled > 0 else { return nil }
+        var paths: [String] = []
+        for fd in fds.prefix(Int(filled) / stride) where fd.proc_fdtype == PROX_FDTYPE_VNODE {
+            var info = vnode_fdinfowithpath()
+            let size = Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDVNODEPATHINFO, &info, size) == size else { continue }
+            paths.append(withUnsafePointer(to: &info.pvip.vip_path) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) }
+            })
+        }
+        return paths
+    }
+
     public static func isAlive(_ pid: pid_t) -> Bool {
         pid > 0 && (kill(pid, 0) == 0 || errno == EPERM)
     }

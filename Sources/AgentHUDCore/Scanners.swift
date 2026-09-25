@@ -126,6 +126,8 @@ public final class RolloutScanner {
         public var lastPrompt: String?
         public var lastMessage: String?
         public var modified: Date
+        /// A thread Codex started for a sub-agent or fork (`parent_thread_id`): part of its parent, not a session.
+        public var isSubagent = false
     }
 
     private let root: URL
@@ -185,6 +187,7 @@ public final class RolloutScanner {
         if let resume {
             info = resume.info
             offset = resume.offset
+            if info.isSubagent { return (info, (try? h.seekToEnd()) ?? offset) }
             try? h.seek(toOffset: offset)
         } else {
             // session_meta is the first line; it can be large (it embeds instructions), so read generously.
@@ -197,6 +200,11 @@ public final class RolloutScanner {
             info = Info(sessionId: id, path: path, cwd: payload["cwd"] as? String,
                         originator: (payload["originator"] as? String) ?? (payload["source"] as? String),
                         running: false, modified: modified)
+            // Sub-agents say so with a parent thread and a `{"subagent": …}` source. Their turns are read no further.
+            if payload["parent_thread_id"] != nil || payload["source"] is [String: Any] {
+                info.isSubagent = true
+                return (info, (try? h.seekToEnd()) ?? 0)
+            }
         }
         info.modified = modified
         while true {
@@ -243,8 +251,10 @@ public final class RolloutScanner {
     }
 
     /// Events for rollouts whose inferred state differs from the store, skipping sessions hooks already cover.
+    /// `openRollouts`: names of the rollout files some Codex process holds open. Codex keeps a thread's rollout open while
+    /// it's loaded, so a closed chat is one whose file nobody holds. Nil when that couldn't be read.
     public static func reconcile(store: SessionStore, rollouts: [Info], codexAlive: Bool,
-                                 now: Date = Date()) -> [AgentEvent] {
+                                 openRollouts: Set<String>? = nil, now: Date = Date()) -> [AgentEvent] {
         let hookedPaths = Set(store.sessions.values.filter { $0.agent == .codex && $0.hasHooks }
             .compactMap(\.transcriptPath))
         var events: [AgentEvent] = []
@@ -252,12 +262,23 @@ public final class RolloutScanner {
             let key = SessionStore.key(.codex, r.sessionId)
             let existing = store.sessions[key]
             if existing?.hasHooks == true || hookedPaths.contains(r.path) { continue }
+            if r.isSubagent {
+                // Earlier versions showed sub-agents as sessions of their own; retire any still listed.
+                if let s = existing, s.state != .ended {
+                    var e = AgentEvent(ts: now.timeIntervalSince1970, agent: .codex, event: "ProcessExited", sessionId: r.sessionId)
+                    e.origin = "rollout"
+                    events.append(e)
+                }
+                continue
+            }
             let age = now.timeIntervalSince(r.modified)
             // A "running" turn whose log has been silent for 30 min died with its process.
             let running = r.running && age < 1800
             if existing == nil && !running && age > 2 * 3600 { continue } // old idle threads aren't news
+            // A just-written rollout is alive even if the process table was read a moment before it opened.
+            let loaded = codexAlive && (openRollouts.map { $0.contains((r.path as NSString).lastPathComponent) || age < 60 } ?? true)
             let name: String
-            if !codexAlive { name = "ProcessExited" } else { name = running ? "RolloutRunning" : "RolloutIdle" }
+            if !loaded { name = "ProcessExited" } else { name = running ? "RolloutRunning" : "RolloutIdle" }
             if existing == nil && name == "ProcessExited" { continue }
             if let s = existing {
                 let current = s.state

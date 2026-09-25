@@ -159,6 +159,53 @@ final class ScannerTests: XCTestCase {
         XCTAssertEqual(next?.info.lastMessage, "Reviewed.")
     }
 
+    func testCodexSubagentRolloutsAreNotSessions() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("rollout-\(UUID().uuidString).jsonl")
+        let lines = [
+            #"{"type":"session_meta","payload":{"id":"child","parent_thread_id":"parent","cwd":"/w","source":{"subagent":{"thread_spawn":{}}}}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started"}}"#,
+        ]
+        try (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+        let info = try XCTUnwrap(RolloutScanner.parse(path: file.path, modified: Date(), resume: nil)?.info)
+        XCTAssertTrue(info.isSubagent)
+
+        // One listed by an earlier version is retired; otherwise nothing happens.
+        let store = SessionStore()
+        XCTAssertEqual(RolloutScanner.reconcile(store: store, rollouts: [info], codexAlive: true), [])
+        var seen = AgentEvent(ts: 100, agent: .codex, event: "RolloutIdle", sessionId: "child")
+        seen.origin = "rollout"
+        store.apply(seen)
+        XCTAssertEqual(RolloutScanner.reconcile(store: store, rollouts: [info], codexAlive: true).map(\.event), ["ProcessExited"])
+    }
+
+    func testClosedCodexChatEndsWhenNoProcessHoldsItsRollout() {
+        let now = Date()
+        let store = SessionStore()
+        var info = RolloutScanner.Info(sessionId: "abc", path: "/r/rollout-abc.jsonl", cwd: "/w", originator: "codex_vscode",
+                                       running: false, modified: now.addingTimeInterval(-600))
+        let open: Set<String> = ["rollout-abc.jsonl"]
+        var evs = RolloutScanner.reconcile(store: store, rollouts: [info], codexAlive: true, openRollouts: open, now: now)
+        XCTAssertEqual(evs.map(\.event), ["RolloutIdle"])
+        evs.forEach { store.apply($0) }
+        // The chat is closed; another Codex process (the ChatGPT app) is still running.
+        evs = RolloutScanner.reconcile(store: store, rollouts: [info], codexAlive: true, openRollouts: [], now: now)
+        XCTAssertEqual(evs.map(\.event), ["ProcessExited"])
+        evs.forEach { store.apply($0) }
+        // Reopened: it comes back.
+        info.modified = now
+        evs = RolloutScanner.reconcile(store: store, rollouts: [info], codexAlive: true, openRollouts: open, now: now)
+        XCTAssertEqual(evs.map(\.event), ["RolloutIdle"])
+    }
+
+    func testOpenFilesListsThisProcessesFile() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("open-\(UUID().uuidString).txt")
+        try "x".write(to: file, atomically: true, encoding: .utf8)
+        let h = try FileHandle(forReadingFrom: file)
+        defer { try? h.close() }
+        let paths = try XCTUnwrap(ProcTools.openFiles(getpid()))
+        XCTAssertTrue(paths.contains { $0.hasSuffix("/" + file.lastPathComponent) }, "\(paths.suffix(5))")
+    }
+
     func testHooksWinOverRollouts() {
         let store = SessionStore()
         var e = AgentEvent(ts: 100, agent: .codex, event: "Stop", sessionId: "other-id")
