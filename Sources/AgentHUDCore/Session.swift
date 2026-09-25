@@ -138,6 +138,7 @@ public struct Session: Identifiable, Equatable, Sendable {
         case "windsurf": return "Windsurf"
         case "ghostty": return "Ghostty"
         case "warp": return "Warp"
+        case "wezterm": return "WezTerm"
         case "claude-desktop": return "Claude app"
         case "chatgpt": return "ChatGPT app"
         case "codex-desktop": return "Codex app"

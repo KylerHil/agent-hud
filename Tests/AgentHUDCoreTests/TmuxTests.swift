@@ -43,3 +43,17 @@ final class TmuxTests: XCTestCase {
         XCTAssertEqual(s.hostLabel, "tmux")
     }
 }
+
+final class WezTermTests: XCTestCase {
+    func testParsesPanesWithTTYs() {
+        let json = #"[{"window_id":0,"tab_id":3,"pane_id":7,"workspace":"default","title":"zsh","tty_name":"/dev/ttys021","is_active":true},{"window_id":1,"tab_id":4,"pane_id":9,"tty_name":"/dev/ttys030"}]"#
+        let panes = WezTerm.parse(Data(json.utf8))
+        XCTAssertEqual(panes.first { $0.tty == "/dev/ttys021" }?.paneID, 7)
+        XCTAssertEqual(panes.count, 2)
+    }
+
+    func testHostKind() {
+        XCTAssertEqual(ProcTools.hostKind(app: "/Applications/WezTerm.app", termProgram: nil), "wezterm")
+        XCTAssertEqual(ProcTools.hostKind(app: nil, termProgram: "WezTerm"), "wezterm")
+    }
+}

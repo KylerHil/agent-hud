@@ -142,6 +142,7 @@ public enum ProcTools {
         if name == "terminal.app" { return "terminal" }
         if name.contains("ghostty") { return "ghostty" }
         if name.contains("warp") { return "warp" }
+        if name.contains("wezterm") { return "wezterm" }
         if name == "claude.app" { return "claude-desktop" }
         if name.contains("chatgpt") { return "chatgpt" }
         if name == "codex.app" { return "codex-desktop" }
@@ -151,6 +152,7 @@ public enum ProcTools {
         case "Apple_Terminal": return "terminal"
         case "ghostty": return "ghostty"
         case "WarpTerminal": return "warp"
+        case "WezTerm": return "wezterm"
         default: break
         }
         return name.isEmpty ? nil : (name as NSString).deletingPathExtension
@@ -163,6 +165,7 @@ public enum ProcTools {
             "ghostty": "/Applications/Ghostty.app",
             "vscode": "/Applications/Visual Studio Code.app",
             "warp": "/Applications/Warp.app",
+            "wezterm": "/Applications/WezTerm.app",
             "claude-desktop": "/Applications/Claude.app",
             "chatgpt": "/Applications/ChatGPT.app",
         ]

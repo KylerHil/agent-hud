@@ -167,7 +167,8 @@ Agent HUD's hooks were in it.
 - **Drag** the panel from anywhere; **resize** from its edges or the corner grip. Size and
   position are remembered. The list scrolls.
 - **Click** a row to bring its window forward: the exact tmux pane (it switches the attached
-  client to that session and window, then brings that terminal forward), the exact Terminal/iTerm2 tab (by tty), the
+  client to that session and window, then brings that terminal forward), the exact Terminal, iTerm2 or
+  WezTerm tab (by tty), the
   VS Code/Cursor window that already has the project open (read from the editor's list of open
   windows, so it never opens a second window for a subfolder), the Claude or ChatGPT app, else the
   folder in Finder.

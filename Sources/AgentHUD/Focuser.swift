@@ -30,6 +30,8 @@ enum Focuser {
             if let tty = s.tty, runScript(terminalScript(tty: tty)) { return }
         case "iterm":
             if let tty = s.tty, runScript(itermScript(tty: tty)) { return }
+        case "wezterm":
+            if let tty = s.tty, focusTerminal(tty: tty, pid: s.pid) { return }
         case "vscode", "cursor", "windsurf":
             // Opening a window's own folder focuses it; opening a subfolder of it would make a new window.
             if let app = s.hostApp, let url = editorTarget(s, app: app) {
@@ -61,8 +63,13 @@ enum Focuser {
             return false
         }
         note("tmux: pane \(hit.pane.paneID) in session \(hit.pane.session); client \(hit.client.map { "\($0.tty) on \($0.session)" } ?? "none attached")")
-        Tmux.select(tty: tty)
+        if let c = hit.client, c.session != hit.pane.session {
+            note("tmux: switch-client \(c.tty) → \(hit.pane.session): \(Tmux.run(["switch-client", "-c", c.tty, "-t", hit.pane.session]) != nil ? "ok" : "failed")")
+        }
+        note("tmux: select-window \(hit.pane.windowID): \(Tmux.run(["select-window", "-t", hit.pane.windowID]) != nil ? "ok" : "failed")")
+        note("tmux: select-pane \(hit.pane.paneID): \(Tmux.run(["select-pane", "-t", hit.pane.paneID]) != nil ? "ok" : "failed")")
         if let c = hit.client {
+            note("tmux: showing it in the terminal on \(c.tty) (client pid \(c.pid))")
             if !focusTerminal(tty: c.tty, pid: c.pid) { note("tmux: couldn't bring the client's terminal forward") }
         } else {
             note("tmux: session isn't attached anywhere; run `tmux attach -t \(hit.pane.session)`")
@@ -71,12 +78,24 @@ enum Focuser {
         return true
     }
 
+    private static func activate(bundleID: String) {
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.activate()
+    }
+
     /// Terminal or iTerm2 tab with this tty, else the app that owns the process.
     @discardableResult
     static func focusTerminal(tty: String, pid: Int32?) -> Bool {
         let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         if running.contains("com.apple.Terminal"), runScript(terminalScript(tty: tty)) { note("Terminal tab \(tty)"); return true }
         if running.contains("com.googlecode.iterm2"), runScript(itermScript(tty: tty)) { note("iTerm2 session \(tty)"); return true }
+        if running.contains("com.github.wez.wezterm") {
+            if WezTerm.activate(tty: tty) {
+                note("WezTerm pane with \(tty)")
+                activate(bundleID: "com.github.wez.wezterm")
+                return true
+            }
+            note("WezTerm: no pane has \(tty)\(WezTerm.binary == nil ? " (wezterm CLI not found)" : "")")
+        }
         if let pid, let app = ProcTools.ancestry(from: pid, agent: nil, env: [:]).hostApp,
            FileManager.default.fileExists(atPath: app) {
             note("activating \(app)")

@@ -72,7 +72,7 @@ public enum Tmux {
     }
 
     @discardableResult
-    static func run(_ args: [String]) -> String? {
+    public static func run(_ args: [String]) -> String? {
         guard let bin = binary else { return nil }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: bin)
