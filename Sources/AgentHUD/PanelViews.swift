@@ -285,6 +285,11 @@ struct ExpandedView: View {
                 if model.searching { model.endSearch() } else { model.beginSearch(); model.actions.focusPanel() }
             }
             IconButton(symbol: "chart.bar.xaxis", help: "Dashboard") { model.actions.openDashboard() }
+            if model.canSyncDotOrder {
+                IconButton(symbol: "rectangle.split.3x1", help: "Order menu bar dots like your AeroSpace windows") {
+                    model.syncDotOrder()
+                }
+            }
             IconButton(symbol: "gearshape", help: "Settings") { model.openSettings() }
             IconButton(symbol: "chevron.up", help: "Collapse to pill") { model.settings.collapsed = true }
         }

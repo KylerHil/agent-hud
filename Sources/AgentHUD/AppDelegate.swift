@@ -177,6 +177,10 @@ extension AppDelegate: NSMenuDelegate {
         add(menu, "Show Idle Sessions", #selector(toggleShowIdle), "").state = settings.showIdle ? .on : .off
         menu.addItem(pauseItem())
         add(menu, "Dashboard…", #selector(openDashboard), "")
+        if model.canSyncDotOrder {
+            add(menu, "Sync Dot Order with AeroSpace", #selector(syncDotOrder), "")
+            if !settings.dotOrder.isEmpty { add(menu, "Reset Dot Order", #selector(resetDotOrder), "") }
+        }
         menu.addItem(.separator())
         add(menu, "Settings…", #selector(openSettings), ",")
         if let r = model.updater.available {
@@ -281,6 +285,8 @@ extension AppDelegate: NSMenuDelegate {
         panel.show()
     }
     @objc func togglePanel() { panel.toggle() }
+    @objc func syncDotOrder() { model.syncDotOrder() }
+    @objc func resetDotOrder() { settings.dotOrder = [] }
     @objc func toggleCollapsed() { settings.collapsed.toggle(); panel.show() }
     @objc func toggleShowIdle() { settings.showIdle.toggle() }
     @objc func checkForUpdates() {

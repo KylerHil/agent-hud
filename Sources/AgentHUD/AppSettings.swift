@@ -40,6 +40,8 @@ final class AppSettings {
     /// History: silences longer than this between transcript events don't count as active time.
     var idleGapMinutes: Double { didSet { defaults.set(idleGapMinutes, forKey: "idleGapMinutes") } }
     var dashboardRange: String { didSet { defaults.set(dashboardRange, forKey: "dashboardRange") } }
+    /// Editor window folder names in AeroSpace's tree order, from the last "Sync Dot Order". Empty: urgency order.
+    var dotOrder: [String] { didSet { defaults.set(dotOrder, forKey: "dotOrder") } }
 
     init() {
         defaults.register(defaults: [
@@ -77,6 +79,7 @@ final class AppSettings {
         pausedUntil = defaults.double(forKey: "pausedUntil")
         idleGapMinutes = defaults.double(forKey: "idleGapMinutes")
         dashboardRange = defaults.string(forKey: "dashboardRange") ?? "today"
+        dotOrder = defaults.stringArray(forKey: "dotOrder") ?? []
     }
 
     var staleAfter: TimeInterval { staleMinutes * 60 }
