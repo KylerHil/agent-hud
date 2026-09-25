@@ -687,15 +687,19 @@ struct SessionDetailView: View {
                 .help("Back to all sessions")
                 .accessibilityLabel("Back")
                 StateDot(state: state, size: 9, halo: true)
-                Text(session.projectName).font(.system(size: 14, weight: .bold)).lineLimit(1).layoutPriority(1)
+                Text(session.projectName).font(.system(size: 14, weight: .bold))
+                    .lineLimit(1).truncationMode(.middle).layoutPriority(1)
                 if let sub = session.subpath {
-                    Text("› " + sub).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                    Text("› " + sub).font(.system(size: 12)).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.head).layoutPriority(-1)
                 }
                 AgentBadge(agent: session.agent)
                 Spacer(minLength: 4)
                 Text("\(state.verb) \(longDuration(model.now.timeIntervalSince(model.since(session))))")
                     .font(.system(size: 11, weight: .semibold).monospacedDigit())
                     .foregroundStyle(state == .idle || state == .ended ? .secondary : state.color)
+                    .lineLimit(1)
+                    .fixedSize()
             }
             Text(locationLine)
                 .font(.system(size: 10.5))
@@ -781,7 +785,7 @@ struct SessionDetailView: View {
         return HStack(spacing: 6) {
             stat("Tool calls", "\(session.toolCalls)")
             stat("Files", "\(session.filesChanged.count)")
-            stat("Waited on you", shortDuration(waited))
+            stat("Waited", shortDuration(waited))
             stat("Context", ctx.map { u in u.fraction.map { "\(Int($0 * 100))%" } ?? tokens(u.tokens) } ?? "—",
                  help: ctx.map { "\($0.tokens.formatted()) tokens" + ($0.window.map { " of \($0.formatted())" } ?? "") })
         }
@@ -797,6 +801,7 @@ struct SessionDetailView: View {
     }
 
     private func stat(_ label: String, _ value: String, help: String? = nil) -> some View {
+        // Labels are one short word so four fit side by side even in a narrow panel.
         VStack(alignment: .leading, spacing: 1) {
             Text(label).font(.system(size: 9.5)).foregroundStyle(.secondary).lineLimit(1)
             Text(value).font(.system(size: 14, weight: .bold).monospacedDigit()).lineLimit(1)
@@ -852,7 +857,9 @@ private struct TimelineRow: View {
             Text(entry.at.formatted(date: .omitted, time: .standard))
                 .font(.system(size: 9.5).monospacedDigit())
                 .foregroundStyle(.secondary)
-                .frame(width: 58, alignment: .leading)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(minWidth: 62, alignment: .leading)
             Circle().fill(color).frame(width: 6, height: 6)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {

@@ -265,13 +265,17 @@ public final class SessionStore {
         }
     }
 
-    /// NEEDS INPUT, RUNNING, IDLE…; within a state, longest-waiting first.
+    /// NEEDS INPUT, RUNNING, IDLE…. Waiting and working sessions show the longest-running first (the one
+    /// that's waited longest needs you most); idle and ended ones show the most recently active first.
     public func sorted(now: Date, staleAfter: TimeInterval, lastOutput: (Session) -> Date? = { _ in nil }) -> [Session] {
         sessions.values.sorted { a, b in
-            let ra = a.displayState(now: now, staleAfter: staleAfter, lastOutputAt: lastOutput(a)).sortRank
-            let rb = b.displayState(now: now, staleAfter: staleAfter, lastOutputAt: lastOutput(b)).sortRank
-            if ra != rb { return ra < rb }
-            if a.stateSince != b.stateSince { return a.stateSince < b.stateSince }
+            let sa = a.displayState(now: now, staleAfter: staleAfter, lastOutputAt: lastOutput(a))
+            let sb = b.displayState(now: now, staleAfter: staleAfter, lastOutputAt: lastOutput(b))
+            if sa.sortRank != sb.sortRank { return sa.sortRank < sb.sortRank }
+            if a.stateSince != b.stateSince {
+                let oldestFirst = sa == .needsInput || sa == .running
+                return oldestFirst ? a.stateSince < b.stateSince : a.stateSince > b.stateSince
+            }
             return a.id < b.id
         }
     }

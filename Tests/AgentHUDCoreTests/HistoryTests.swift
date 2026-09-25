@@ -286,3 +286,22 @@ final class MigrationTests: XCTestCase {
         XCTAssertFalse(Paths.migrateLegacyHome(), "runs once")
     }
 }
+
+final class SortOrderTests: XCTestCase {
+    func testIdleNewestFirstWaitingOldestFirst() {
+        let store = SessionStore()
+        func ev(_ sid: String, _ name: String, _ t: Double, _ f: (inout AgentEvent) -> Void = { _ in }) {
+            var e = AgentEvent(ts: t, agent: .claude, event: name, sessionId: sid)
+            e.origin = "hook"
+            f(&e)
+            store.apply(e)
+        }
+        ev("old-idle", "Stop", 100)
+        ev("new-idle", "Stop", 300)
+        ev("mid-idle", "Stop", 200)
+        ev("long-wait", "PermissionRequest", 150) { $0.toolName = "Bash" }
+        ev("short-wait", "PermissionRequest", 250) { $0.toolName = "Bash" }
+        let order = store.sorted(now: Date(timeIntervalSince1970: 400), staleAfter: 900).map(\.sessionId)
+        XCTAssertEqual(order, ["long-wait", "short-wait", "new-idle", "mid-idle", "old-idle"])
+    }
+}
