@@ -20,6 +20,31 @@ CONFIG="Distribution/config.env"
 source "$CONFIG"
 [[ "${TEAM_ID:-XXXXXXXXXX}" != "XXXXXXXXXX" ]] || { echo "Set TEAM_ID in $CONFIG." >&2; exit 1; }
 
+# Fail early, with the fix, rather than deep inside codesign or altool.
+missing=()
+have_identity() { security find-identity -v 2>/dev/null | grep -qF "\"$1\""; }
+if [[ "$FLAVOR" == "direct" ]]; then
+    have_identity "$DEVELOPER_ID_APP" || missing+=("Certificate \"$DEVELOPER_ID_APP\" (docs/DISTRIBUTION.md step 2)")
+    xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
+        || missing+=("Notary profile \"$NOTARY_PROFILE\" (step 7)")
+else
+    have_identity "$APPSTORE_APP_IDENTITY" || missing+=("Certificate \"$APPSTORE_APP_IDENTITY\" (step 2)")
+    have_identity "$APPSTORE_INSTALLER_IDENTITY" || missing+=("Certificate \"$APPSTORE_INSTALLER_IDENTITY\" (step 2)")
+    [[ -f "$APPSTORE_PROFILE" ]] || missing+=("Provisioning profile at $APPSTORE_PROFILE (step 4)")
+    if [[ "$UPLOAD" == "--upload" ]]; then
+        [[ "${ASC_KEY_ID:-XXXXXXXXXX}" != "XXXXXXXXXX" ]] || missing+=("ASC_KEY_ID and ASC_ISSUER_ID in $CONFIG (step 6)")
+        [[ -f "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID:-}.p8" ]] \
+            || missing+=("API key file ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID:-<id>}.p8 (step 6)")
+    fi
+fi
+if (( ${#missing[@]} )); then
+    echo "Not ready to build the $FLAVOR release. Missing:" >&2
+    printf '  - %s\n' "${missing[@]}" >&2
+    echo "Installed signing identities:" >&2
+    security find-identity -v | sed 's/^/    /' >&2
+    exit 1
+fi
+
 PLIST=/usr/libexec/PlistBuddy
 VERSION="${VERSION:-$($PLIST -c 'Print :CFBundleShortVersionString' Resources/Info.plist)}"
 BUILD_NUMBER="${BUILD_NUMBER:-$(date +%y%m%d%H%M)}"
@@ -74,7 +99,6 @@ if [[ "$FLAVOR" == "direct" ]]; then
 fi
 
 # --- App Store ---------------------------------------------------------------------
-[[ -f "$APPSTORE_PROFILE" ]] || { echo "Missing provisioning profile at $APPSTORE_PROFILE." >&2; exit 1; }
 $PLIST -c "Add :AgentHUDAppGroup string $TEAM_ID.$BUNDLE_ID" "$APP/Contents/Info.plist"
 cp "$APPSTORE_PROFILE" "$APP/Contents/embedded.provisionprofile"
 APP_ENT="$(entitlements Distribution/entitlements/appstore-app.entitlements)"
