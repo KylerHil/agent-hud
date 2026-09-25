@@ -74,22 +74,32 @@ final class PanelController {
         }
         applyOpacity(hovering: false)
         observeSettings()
-        observePill()
     }
 
+    /// Whether the panel window is on screen (not in the menu bar as the pill, not hidden).
     var isVisible: Bool { panel.isVisible }
 
+    /// Shows the panel, or the menu bar pill when it's collapsed.
     func show() {
-        panel.orderFrontRegardless()
         model.settings.panelVisible = true
+        if !model.settings.collapsed { panel.orderFrontRegardless() }
     }
 
     func hide() {
-        panel.orderOut(nil)
         model.settings.panelVisible = false
+        syncWindow()
     }
 
-    func toggle() { isVisible ? hide() : show() }
+    func toggle() { model.settings.panelVisible ? hide() : show() }
+
+    /// Collapsed, the panel lives in the menu bar as the pill, so its window stays off screen.
+    private func syncWindow() {
+        if model.settings.panelVisible && !model.settings.collapsed {
+            if !panel.isVisible { panel.orderFrontRegardless() }
+        } else if panel.isVisible {
+            panel.orderOut(nil)
+        }
+    }
 
     /// Shows the panel and takes keystrokes (for search) without activating the app, like Spotlight.
     func showForTyping() {
@@ -110,28 +120,10 @@ final class PanelController {
             Task { @MainActor in
                 guard let self else { return }
                 self.applyMode(animate: true)
+                self.syncWindow()
                 self.applyOpacity(hovering: false)
                 self.observeSettings()
             }
-        }
-    }
-
-    /// The pill names the longest-waiting session, so its width follows what it says.
-    private var pillSignature = ""
-
-    private func observePill() {
-        let signature = withObservationTracking {
-            guard model.settings.collapsed else { return "" }
-            let c = model.counts
-            let s = model.nextWaiting
-            return [s?.id, s?.primaryPending?.reason, "\(c.attention) \(c.running) \(c.idle)"].map { $0 ?? "" }
-                .joined(separator: "|")
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.observePill() }
-        }
-        if signature != pillSignature {
-            pillSignature = signature
-            if model.settings.collapsed { applyMode(animate: false) }
         }
     }
 
@@ -156,8 +148,9 @@ final class PanelController {
     private var preLargeTopLeft: NSPoint?
     private var wasLarge = false
 
-    /// Expanded: user-sized and resizable. Collapsed: exactly as big as the pill. Top-left stays put.
+    /// User-sized and resizable, top-left fixed. Collapsed, the window is off screen and keeps its size.
     private func applyMode(animate: Bool) {
+        guard !model.settings.collapsed else { return }
         let large = model.mode.isLarge && !model.settings.collapsed
         if large && !wasLarge { preLargeTopLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY) }
         defer {
@@ -167,17 +160,9 @@ final class PanelController {
             }
             wasLarge = large
         }
-        let size: CGSize
-        if model.settings.collapsed {
-            panel.styleMask.remove(.resizable)
-            panel.minSize = .zero
-            size = NSHostingView(rootView: PillView(model: model).padding(8)).fittingSize
-        } else {
-            panel.styleMask.insert(.resizable)
-            panel.minSize = currentMinSize
-            size = savedSize
-        }
-        setSize(size, animate: animate)
+        panel.styleMask.insert(.resizable)
+        panel.minSize = currentMinSize
+        setSize(savedSize, animate: animate)
     }
 
     func setSize(_ size: CGSize, animate: Bool = false) {

@@ -593,6 +593,53 @@ final class AppModel {
     /// The session that has waited longest, for "Jump to Next Waiting" and the pill.
     var nextWaiting: Session? { menuBarSessions.first { displayState($0) == .needsInput } }
 
+    /// What the menu bar pill says: who waits (and on what), else what a working agent is doing, rotating
+    /// every 5 s, else who just finished. Nil when nothing is going on, so the pill shows only its capsule.
+    var pillContent: PillContent? {
+        let live = menuBarSessions
+        if let s = nextWaiting {
+            let more = live.filter { displayState($0) == .needsInput }.count - 1
+            return PillContent(state: .needsInput, name: s.projectName,
+                               detail: s.primaryPending?.reason ?? "needs input", more: max(0, more))
+        }
+        let working = live.filter { [.running, .stale].contains(displayState($0)) }
+        if !working.isEmpty {
+            let s = working[Int(now.timeIntervalSince1970 / 5) % working.count]
+            return PillContent(state: displayState(s), name: s.projectName,
+                               detail: displayState(s) == .stale ? "quiet" : Self.activity(s.currentDetail), more: 0)
+        }
+        if let s = finishedCards.first {
+            return PillContent(state: .idle, justFinished: true, name: s.projectName, detail: "finished", more: 0)
+        }
+        return nil
+    }
+
+    /// "Read · /a/b/task-rate-unit.ts" → "Reading task-rate-unit.ts"; "Bash · swift build" → "swift build".
+    static func activity(_ detail: String?) -> String {
+        guard let detail, !detail.isEmpty else { return "working" }
+        let parts = detail.components(separatedBy: " · ")
+        let tool = parts[0], arg = parts.dropFirst().joined(separator: " · ")
+        let file = (arg as NSString).lastPathComponent
+        let text: String
+        switch tool {
+        case "Read", "NotebookRead": text = "Reading " + file
+        case "Edit", "MultiEdit", "Write", "NotebookEdit": text = "Editing " + file
+        case "Grep", "Glob": text = "Searching " + arg
+        case "WebFetch", "WebSearch": text = "Browsing " + arg
+        case "Agent", "Task": text = "Delegating " + arg
+        default: text = arg.isEmpty ? tool : arg
+        }
+        return text.count > 28 ? String(text.prefix(27)) + "…" : text
+    }
+
+    struct PillContent: Equatable {
+        var state: SessionState
+        var justFinished = false
+        var name: String
+        var detail: String
+        var more: Int
+    }
+
     /// When the state began, for "waiting 3m". Stale counts from the last sign of life.
     func since(_ s: Session) -> Date {
         if displayState(s) == .stale { return max(s.lastEventAt, lastOutput[s.id] ?? .distantPast) }

@@ -33,6 +33,9 @@ final class AppSettings {
     var lastUpdateCheck: Double { didSet { defaults.set(lastUpdateCheck, forKey: "lastUpdateCheck") } }
     var findShortcut: Shortcut { didSet { save(findShortcut, "findShortcut") } }
     var panelShortcut: Shortcut { didSet { save(panelShortcut, "panelShortcut") } }
+    var collapseShortcut: Shortcut { didSet { save(collapseShortcut, "collapseShortcut") } }
+    /// How much the menu bar pill says while the panel is collapsed to it.
+    var pillDetail: PillDetail { didSet { defaults.set(pillDetail.rawValue, forKey: "pillDetail") } }
     /// Notifications are paused until this time (seconds since 1970; 0 = not paused).
     var pausedUntil: Double { didSet { defaults.set(pausedUntil, forKey: "pausedUntil") } }
     /// History: silences longer than this between transcript events don't count as active time.
@@ -93,6 +96,8 @@ final class AppSettings {
         lastUpdateCheck = defaults.double(forKey: "lastUpdateCheck")
         findShortcut = Self.load(defaults, "findShortcut") ?? .findDefault
         panelShortcut = Self.load(defaults, "panelShortcut") ?? .panelDefault
+        collapseShortcut = Self.load(defaults, "collapseShortcut") ?? .collapseDefault
+        pillDetail = defaults.string(forKey: "pillDetail").flatMap(PillDetail.init(rawValue:)) ?? .icon
         pausedUntil = defaults.double(forKey: "pausedUntil")
         idleGapMinutes = defaults.double(forKey: "idleGapMinutes")
         dashboardRange = defaults.string(forKey: "dashboardRange") ?? "today"
@@ -117,5 +122,21 @@ final class AppSettings {
         d.data(forKey: key).flatMap { try? JSONDecoder().decode(Shortcut.self, from: $0) }
     }
 
+    /// Collapsed and not hidden: the panel lives in the menu bar as the pill.
+    var inPillMode: Bool { collapsed && panelVisible }
+
     var notificationsPaused: Bool { pausedUntil > Date().timeIntervalSince1970 }
+}
+
+/// The menu bar pill: who and what (full), who (compact), or a capsule colored by the most urgent state (icon).
+enum PillDetail: String, CaseIterable {
+    case full, compact, icon
+
+    var label: String {
+        switch self {
+        case .full: "Full"
+        case .compact: "Compact"
+        case .icon: "Icon only"
+        }
+    }
 }

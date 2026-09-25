@@ -41,6 +41,16 @@ enum Snapshot {
         }
         model.settings.homeDetailed = false
         renderDots(model.menuBarDots, to: "\(dir)/menubar.png")
+        // Pill mode: the pill, then the dots.
+        let dots = AppDelegate.dotsImage(model.menuBarDots, withEye: true)
+        let waiting = AppModel.PillContent(state: .needsInput, name: "projectissuetracker", detail: "Permission: Bash", more: 1)
+        let working = AppModel.PillContent(state: .running, name: "Norco",
+                                           detail: AppModel.activity("Read · /Users/k/Norco/src/task-rate-unit.ts"), more: 0)
+        for (name, content, detail) in [("waiting", waiting, PillDetail.full), ("working", working, .full),
+                                        ("compact", waiting, .compact), ("icon", working, .icon)] {
+            renderStrip([AppDelegate.pillImage(content, detail: detail), dots], to: "\(dir)/menubar-pill-\(name).png")
+        }
+        renderStrip([AppDelegate.pillImage(model.pillContent, detail: .full), dots], to: "\(dir)/menubar-pill-now.png")
         renderDots(([.needsInput, .needsInput, .running, .running, .stale, .idle, .idle, .unknown, .running, .idle,
                      .idle, .running] as [SessionState]).map { AppModel.MenuDot(state: $0) }, to: "\(dir)/menubar-overflow.png")
         for scheme in [ColorScheme.light, .dark] {
@@ -100,9 +110,14 @@ enum Snapshot {
 
     /// The menu-bar dots for the given states, on a menu-bar-like strip, light and dark.
     static func renderDots(_ states: [AppModel.MenuDot], to path: String) {
-        let dots = AppDelegate.dotsImage(states, withEye: true)
-        let pad: CGFloat = 10
-        let size = NSSize(width: dots.size.width + pad * 2, height: 24 * 2 + 4)
+        renderStrip([AppDelegate.dotsImage(states, withEye: true)], to: path)
+    }
+
+    /// Menu bar items side by side, as macOS spaces them, light and dark.
+    static func renderStrip(_ items: [NSImage], to path: String) {
+        let pad: CGFloat = 10, spacing: CGFloat = 8
+        let width = items.map(\.size.width).reduce(0, +) + spacing * CGFloat(max(0, items.count - 1))
+        let size = NSSize(width: width + pad * 2, height: 24 * 2 + 4)
         let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
                                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
@@ -114,7 +129,12 @@ enum Snapshot {
                 let y = CGFloat(1 - i) * 28
                 (name == .aqua ? NSColor(white: 0.92, alpha: 1) : NSColor(white: 0.16, alpha: 1)).setFill()
                 NSRect(x: 0, y: y, width: size.width, height: 24).fill()
-                dots.draw(in: NSRect(x: pad, y: y + 3, width: dots.size.width, height: dots.size.height))
+                var x = pad
+                for item in items {
+                    item.draw(in: NSRect(x: x, y: y + (24 - item.size.height) / 2, width: item.size.width,
+                                         height: item.size.height))
+                    x += item.size.width + spacing
+                }
             }
         }
         NSGraphicsContext.restoreGraphicsState()

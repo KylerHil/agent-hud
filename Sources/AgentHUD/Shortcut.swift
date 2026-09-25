@@ -12,6 +12,7 @@ struct Shortcut: Codable, Equatable {
 
     static let findDefault = Shortcut(keyCode: kVK_Space, modifiers: controlKey | optionKey, key: "Space")
     static let panelDefault = Shortcut(keyCode: kVK_ANSI_A, modifiers: controlKey | optionKey, key: "A")
+    static let collapseDefault = Shortcut(keyCode: kVK_ANSI_2, modifiers: optionKey, key: "2")
 
     /// "⌃⌥Space", in the order macOS menus use.
     var display: String {

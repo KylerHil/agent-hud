@@ -186,11 +186,14 @@ Agent HUD's hooks were in it.
   changed, time spent waiting on you, context used, subagents, and a timeline of recent events.
   Copy Resume Command gives `cd <folder> && claude --resume <id>` (or `codex resume <id>`).
 - **Right-click** also has Open Folder, Copy Session ID, Mute Notifications, Dismiss.
-- **⌃** collapses to a pill. While something needs input the pill names it (`● web-app  Permission: Bash  +1`)
-  and pulses orange; otherwise it shows counts. Click the pill to expand.
+- **⌃** (or **⌥2**) collapses the panel into a pill in the menu bar, just left of the dots. At Full, while something
+  needs input the pill names it (`● web-app  Permission: Bash  +1`); otherwise it says what a working
+  agent is doing (`● Norco  Reading task-rate-unit.ts`), rotating through them every 5 s. Click the pill to
+  expand; the dots still open the menu. The pill starts as Icon only, a capsule colored by the most urgent state;
+  gear → General → Menu bar pill switches it to Full or Compact (name only).
 - **⌃⌥Space** (or Menu → Find a Session) brings the panel forward with a search field: type to
   filter, ↑↓, Return or ⌘1–9 to jump, Esc to close. Typing a project name also offers **Start** (a new
-  Claude session there, in VS Code or your terminal) and **Resume** (earlier conversations by title). **⌃⌥A** shows or hides the panel. Change either
+  Claude session there, in VS Code or your terminal) and **Resume** (earlier conversations by title). **⌃⌥A** shows or hides the panel, and **⌥2** collapses it to the pill and back. Change any of them
   under gear → General → Shortcuts (click, then press the new combination), or turn them off.
 - **Everything happens in the panel.** **Menu** in the header has Find, Today's Time, Dashboard and
   Settings; they open inside the panel, which grows to fit; nothing opens a separate window.

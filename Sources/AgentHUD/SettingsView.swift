@@ -75,6 +75,13 @@ struct SettingsView: View {
                 }
                 Toggle("Show idle sessions", isOn: $settings.showIdle)
                 VStack(alignment: .leading, spacing: 3) {
+                    Picker("Menu bar pill", selection: $settings.pillDetail) {
+                        ForEach(PillDetail.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    Text("Collapsing the panel puts it in the menu bar, beside the dots. Icon only is a capsule colored by the most urgent session; Full adds who needs you or what an agent is doing; Compact shows just the name. On a notched MacBook a wide pill can disappear behind the notch.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                VStack(alignment: .leading, spacing: 3) {
                     Toggle("Show how full each session's context is", isOn: $settings.showContextGauge)
                     Text("A small ring on each row. It turns orange past 80%, before the agent compacts the conversation.")
                         .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -127,6 +134,10 @@ struct SettingsView: View {
                 .disabled(!settings.hotkeysEnabled)
                 LabeledContent("Show or hide the panel") {
                     ShortcutRecorder(model: model, shortcut: $settings.panelShortcut, fallback: .panelDefault)
+                }
+                .disabled(!settings.hotkeysEnabled)
+                LabeledContent("Collapse to pill or expand") {
+                    ShortcutRecorder(model: model, shortcut: $settings.collapseShortcut, fallback: .collapseDefault)
                 }
                 .disabled(!settings.hotkeysEnabled)
             }

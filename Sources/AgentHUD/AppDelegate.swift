@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var model = AppModel(settings: settings)
     var panel: PanelController!
     var statusItem: NSStatusItem!
+    /// The collapsed panel, beside the dots. Only there in pill mode.
+    var pillItem: NSStatusItem?
     var notifier: Notifier!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -31,14 +33,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func applyHotKeys() {
         HotKeys.shared.unregisterAll()
         if settings.hotkeysEnabled && !model.recordingShortcut {
-            let find = settings.findShortcut, show = settings.panelShortcut
+            let find = settings.findShortcut, show = settings.panelShortcut, pill = settings.collapseShortcut
             HotKeys.shared.register(id: 1, keyCode: find.keyCode, modifiers: find.modifiers) { [weak self] in self?.toggleSearch() }
             HotKeys.shared.register(id: 2, keyCode: show.keyCode, modifiers: show.modifiers) { [weak self] in self?.panel.toggle() }
+            HotKeys.shared.register(id: 3, keyCode: pill.keyCode, modifiers: pill.modifiers) { [weak self] in
+                // A hidden panel stays hidden.
+                guard let self, self.settings.panelVisible else { return }
+                self.toggleCollapsed()
+            }
         }
         withObservationTracking {
             _ = settings.hotkeysEnabled
             _ = settings.findShortcut
             _ = settings.panelShortcut
+            _ = settings.collapseShortcut
             _ = model.recordingShortcut
         } onChange: { [weak self] in
             Task { @MainActor in self?.applyHotKeys() }
@@ -57,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Opening the app again (Finder, Spotlight) while it runs brings the panel back.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        settings.collapsed = false
         panel.show()
         return false
     }
@@ -70,6 +79,103 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
         updateStatusItem()
         observeCounts()
+        observePill()
+    }
+
+    // MARK: - Pill
+
+    private struct PillLook: Equatable {
+        var on: Bool
+        var detail: PillDetail
+        var content: AppModel.PillContent?
+    }
+
+    private var lastPill: PillLook?
+
+    private func observePill() {
+        let look = withObservationTracking {
+            PillLook(on: settings.inPillMode, detail: settings.pillDetail,
+                     content: settings.inPillMode ? model.pillContent : nil)
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observePill() }
+        }
+        guard look != lastPill else { return }
+        lastPill = look
+        updatePill(look)
+    }
+
+    private func updatePill(_ look: PillLook) {
+        guard look.on else {
+            if let item = pillItem { NSStatusBar.system.removeStatusItem(item) }
+            pillItem = nil
+            return
+        }
+        if pillItem == nil {
+            // Added after the dots, so macOS puts it just to their left.
+            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            item.autosaveName = "AgentHUDPill"
+            item.button?.target = self
+            item.button?.action = #selector(expandFromPill)
+            pillItem = item
+        }
+        guard let button = pillItem?.button else { return }
+        button.image = Self.pillImage(look.content, detail: look.detail)
+        let c = look.content
+        button.toolTip = c.map { "\($0.name): \($0.detail) · click to expand the panel" } ?? "Click to expand the panel"
+    }
+
+    /// A capsule: dot, name and (Full) what it's doing. With nothing going on, or at Icon only, an empty capsule
+    /// outline, colored by the most urgent state.
+    static func pillImage(_ content: AppModel.PillContent?, detail: PillDetail) -> NSImage {
+        let height: CGFloat = 20, d: CGFloat = 8, pad: CGFloat = 8
+        let color: NSColor = content.map { $0.justFinished ? .controlAccentColor : $0.state.nsColor } ?? .labelColor
+        guard let content, detail != .icon else {
+            let image = NSImage(size: NSSize(width: 24, height: height), flipped: false) { _ in
+                let r = NSRect(x: 2.5, y: (height - 11) / 2, width: 19, height: 11)
+                let path = NSBezierPath(roundedRect: r, xRadius: 5.5, yRadius: 5.5)
+                path.lineWidth = 1.6
+                (content == nil ? NSColor.labelColor : color).setStroke()
+                path.stroke()
+                if content != nil {
+                    color.withAlphaComponent(0.35).setFill()
+                    path.fill()
+                }
+                return true
+            }
+            image.accessibilityDescription = "Agent HUD pill"
+            return image
+        }
+        let name = NSAttributedString(string: content.name, attributes: [
+            .font: NSFont.systemFont(ofSize: 12.5, weight: .semibold), .foregroundColor: NSColor.labelColor,
+        ])
+        var tail = detail == .full ? content.detail : ""
+        if content.more > 0 { tail += (tail.isEmpty ? "" : " ") + "+\(content.more)" }
+        let rest = NSAttributedString(string: tail, attributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .regular),
+            .foregroundColor: content.state == .needsInput ? NSColor.systemOrange : NSColor.secondaryLabelColor,
+        ])
+        let gap: CGFloat = 5
+        let width = pad + d + gap + name.size().width + (tail.isEmpty ? 0 : gap + rest.size().width) + pad
+        let image = NSImage(size: NSSize(width: ceil(width), height: height), flipped: false) { _ in
+            NSColor.labelColor.withAlphaComponent(0.12).setFill()
+            NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: width, height: height), xRadius: height / 2,
+                         yRadius: height / 2).fill()
+            color.setFill()
+            NSBezierPath(ovalIn: NSRect(x: pad, y: (height - d) / 2, width: d, height: d)).fill()
+            var x = pad + d + gap
+            name.draw(at: NSPoint(x: x, y: (height - name.size().height) / 2))
+            x += name.size().width + gap
+            if !tail.isEmpty { rest.draw(at: NSPoint(x: x, y: (height - rest.size().height) / 2)) }
+            return true
+        }
+        image.isTemplate = false
+        image.accessibilityDescription = "Agent HUD: \(content.name), \(content.detail)"
+        return image
+    }
+
+    @objc func expandFromPill() {
+        settings.collapsed = false
+        panel.show()
     }
 
     private var lastDots: [AppModel.MenuDot]?
@@ -175,8 +281,9 @@ extension AppDelegate: NSMenuDelegate {
         let next = add(menu, "Jump to Next Waiting", #selector(focusNextWaiting), "")
         next.isEnabled = model.nextWaiting != nil
         hotkey(add(menu, "Find Session…", #selector(openSwitcher), ""), settings.findShortcut)
-        hotkey(add(menu, panel.isVisible ? "Hide Panel" : "Show Panel", #selector(togglePanel), ""), settings.panelShortcut)
-        add(menu, settings.collapsed ? "Expand Panel" : "Collapse to Pill", #selector(toggleCollapsed), "")
+        hotkey(add(menu, settings.panelVisible ? "Hide Panel" : "Show Panel", #selector(togglePanel), ""), settings.panelShortcut)
+        hotkey(add(menu, settings.collapsed ? "Expand Panel" : "Collapse to Pill", #selector(toggleCollapsed), ""),
+               settings.collapseShortcut)
         add(menu, "Show Idle Sessions", #selector(toggleShowIdle), "").state = settings.showIdle ? .on : .off
         menu.addItem(pauseItem())
         add(menu, "Dashboard…", #selector(openDashboard), "")
