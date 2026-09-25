@@ -135,6 +135,30 @@ final class ScannerTests: XCTestCase {
         XCTAssertEqual(evs.map(\.event), ["ProcessExited"])
     }
 
+    func testRolloutTurnStartFarBehindLargeToolOutput() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("rollout-\(UUID().uuidString).jsonl")
+        let output = String(repeating: "x", count: 64 * 1024)
+        var lines = [
+            #"{"type":"session_meta","payload":{"id":"big","cwd":"/w"}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}"#,
+        ]
+        for _ in 0..<6 {
+            lines.append(#"{"type":"response_item","payload":{"type":"custom_tool_call_output","output":"\#(output)"}}"#)
+        }
+        try (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+        let parsed = RolloutScanner.parse(path: file.path, modified: Date(), resume: nil)
+        XCTAssertEqual(parsed?.info.running, true)
+
+        // More output, then the turn ends: only the new bytes are read.
+        let done = #"{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"Reviewed."}}"#
+        let h = try FileHandle(forWritingTo: file); try h.seekToEnd()
+        try h.write(contentsOf: Data((lines[2] + "\n" + done + "\n").utf8)); try h.close()
+        let resumed = try XCTUnwrap(parsed)
+        let next = RolloutScanner.parse(path: file.path, modified: Date(), resume: (resumed.offset, resumed.info))
+        XCTAssertEqual(next?.info.running, false)
+        XCTAssertEqual(next?.info.lastMessage, "Reviewed.")
+    }
+
     func testHooksWinOverRollouts() {
         let store = SessionStore()
         var e = AgentEvent(ts: 100, agent: .codex, event: "Stop", sessionId: "other-id")

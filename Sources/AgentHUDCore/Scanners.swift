@@ -129,7 +129,8 @@ public final class RolloutScanner {
     }
 
     private let root: URL
-    private var cache: [String: (mtime: Date, size: UInt64, info: Info?)] = [:]
+    /// Per rollout: the state as of `offset`, the end of the last complete line read.
+    private var cache: [String: (mtime: Date, size: UInt64, offset: UInt64, info: Info?)] = [:]
 
     public init(root: URL = Paths.codexSessions) { self.root = root }
 
@@ -151,48 +152,86 @@ public final class RolloutScanner {
                       let mtime = attrs[.modificationDate] as? Date,
                       now.timeIntervalSince(mtime) < window else { continue }
                 let size = (attrs[.size] as? NSNumber)?.uint64Value ?? 0
-                if let hit = cache[path], hit.mtime == mtime, hit.size == size {
+                let hit = cache[path]
+                if let hit, hit.mtime == mtime, hit.size == size {
                     if let info = hit.info { results.append(info) }
                     continue
                 }
-                let info = Self.parse(path: path, modified: mtime)
-                cache[path] = (mtime, size, info)
-                if let info { results.append(info) }
+                // Appended to: read only the new lines. Shrunk or unreadable before: start over.
+                let resume = hit.flatMap { h in h.info.map { (offset: h.offset, info: $0) } }
+                    .flatMap { size >= $0.offset ? $0 : nil }
+                let parsed = Self.parse(path: path, modified: mtime, resume: resume)
+                cache[path] = (mtime, size, parsed?.offset ?? 0, parsed?.info)
+                if let info = parsed?.info { results.append(info) }
             }
         }
         return results
     }
 
     static func parse(path: String, modified: Date) -> Info? {
+        parse(path: path, modified: modified, resume: nil)?.info
+    }
+
+    /// Turn state from the whole rollout, or from the lines after `resume.offset` on top of `resume.info`.
+    /// Reading only the tail isn't enough: one large tool output (a big diff) can push a turn's
+    /// `task_started` far back, and the turn would read as idle.
+    static func parse(path: String, modified: Date,
+                      resume: (offset: UInt64, info: Info)?) -> (info: Info, offset: UInt64)? {
         guard let h = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? h.close() }
-        // session_meta is the first line; it can be large (it embeds instructions), so read generously.
-        let head = (try? h.read(upToCount: 256 * 1024)) ?? Data()
-        guard let nl = head.firstIndex(of: 0x0A) ?? (head.isEmpty ? nil : head.endIndex),
-              let meta = try? JSONSerialization.jsonObject(with: head[..<nl]) as? [String: Any],
-              meta["type"] as? String == "session_meta",
-              let payload = meta["payload"] as? [String: Any],
-              let id = (payload["id"] as? String) ?? (payload["session_id"] as? String) else { return nil }
-        var info = Info(sessionId: id, path: path, cwd: payload["cwd"] as? String,
+        var info: Info
+        var offset: UInt64 = 0
+        var buffer = Data()
+        if let resume {
+            info = resume.info
+            offset = resume.offset
+            try? h.seek(toOffset: offset)
+        } else {
+            // session_meta is the first line; it can be large (it embeds instructions), so read generously.
+            buffer = (try? h.read(upToCount: 256 * 1024)) ?? Data()
+            guard let nl = buffer.firstIndex(of: 0x0A) ?? (buffer.isEmpty ? nil : buffer.endIndex),
+                  let meta = try? JSONSerialization.jsonObject(with: buffer[..<nl]) as? [String: Any],
+                  meta["type"] as? String == "session_meta",
+                  let payload = meta["payload"] as? [String: Any],
+                  let id = (payload["id"] as? String) ?? (payload["session_id"] as? String) else { return nil }
+            info = Info(sessionId: id, path: path, cwd: payload["cwd"] as? String,
                         originator: (payload["originator"] as? String) ?? (payload["source"] as? String),
                         running: false, modified: modified)
-        for line in TranscriptProbe.tailLines(path, bytes: 128 * 1024) {
-            guard line.contains("\"event_msg\""),
-                  let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
-                  let p = obj["payload"] as? [String: Any], let type = p["type"] as? String else { continue }
-            switch type {
-            case "task_started": info.running = true
-            case "task_complete":
-                info.running = false
-                info.lastMessage = (p["last_agent_message"] as? String)?.preview(240)
-            case "turn_aborted":
-                info.running = false
-                info.lastMessage = "Interrupted"
-            case "user_message": info.lastPrompt = (p["message"] as? String)?.preview(120)
-            default: break
-            }
         }
-        return info
+        info.modified = modified
+        while true {
+            while let nl = buffer.firstIndex(of: 0x0A) {
+                let line = buffer[buffer.startIndex..<nl]
+                offset += UInt64(line.count + 1)
+                apply(line: line, to: &info)
+                buffer = buffer[(nl + 1)...]
+            }
+            guard let chunk = try? h.read(upToCount: 1 << 20), !chunk.isEmpty else { break }
+            buffer = Data(buffer) + chunk
+        }
+        return (info, offset) // a trailing partial line is read again next time
+    }
+
+    private static let markers = ["task_started", "task_complete", "turn_aborted", "user_message"]
+        .map { Data("\"type\":\"\($0)\"".utf8) }
+
+    private static func apply(line: Data, to info: inout Info) {
+        // Most lines are tool output and token counts; skip them without parsing.
+        guard markers.contains(where: { line.range(of: $0) != nil }),
+              let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              obj["type"] as? String == "event_msg",
+              let p = obj["payload"] as? [String: Any], let type = p["type"] as? String else { return }
+        switch type {
+        case "task_started": info.running = true
+        case "task_complete":
+            info.running = false
+            info.lastMessage = (p["last_agent_message"] as? String)?.preview(240)
+        case "turn_aborted":
+            info.running = false
+            info.lastMessage = "Interrupted"
+        case "user_message": info.lastPrompt = (p["message"] as? String)?.preview(120)
+        default: break
+        }
     }
 
     /// Which app started a rollout, from its `originator` (`codex_vscode`, `Codex Desktop`, `codex_cli_rs`…).
