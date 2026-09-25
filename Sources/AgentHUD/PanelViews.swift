@@ -575,7 +575,7 @@ struct SessionRowView: View {
                     .accessibilityLabel(expanded ? "Collapse \(session.projectName)" : "Show sessions in \(session.projectName)")
                 }
                 StateDot(state: state, halo: true)
-                if detailed { ForEach(agents, id: \.self) { AgentBadge(agent: $0) } }
+                ForEach(agents, id: \.self) { AgentBadge(agent: $0) }
                 Text(session.projectName)
                     .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1)
@@ -1439,7 +1439,7 @@ struct FinishedCard: View {
     private func trailing(chips: Bool, long: Bool) -> some View {
         HStack(spacing: 6) {
             if chips {
-                if model.settings.homeDetailed { AgentBadge(agent: session.agent) }
+                AgentBadge(agent: session.agent)
                 if let host = session.hostLabel { SourceChip(label: host) }
             }
             Text(timeLabel(long: long))
