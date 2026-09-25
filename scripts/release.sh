@@ -24,7 +24,7 @@ if [[ "$DRY" != "--dry-run" ]]; then
     [[ "$(git branch --show-current)" == "main" ]] || die "release from main"
     git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null && die "tag v$VERSION already exists"
     step "Running tests"
-    swift test 2>&1 | tail -1
+    swift test 2>&1 | grep -E "Executed .* tests" | tail -1
 fi
 
 PLIST=/usr/libexec/PlistBuddy
