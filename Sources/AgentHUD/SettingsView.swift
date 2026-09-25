@@ -69,6 +69,9 @@ struct SettingsView: View {
                 Stepper("Keep ended sessions for \(Int(settings.endedRetentionMinutes)) min",
                         value: $settings.endedRetentionMinutes, in: 0...60, step: 1)
             }
+            Section("Updates") {
+                UpdatesSection(updater: model.updater, settings: settings)
+            }
             Section("Shortcuts") {
                 Toggle("Global shortcuts", isOn: $settings.hotkeysEnabled)
                 LabeledContent("Find and jump to a session") {
@@ -233,5 +236,44 @@ struct SourcesPane: View {
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+struct UpdatesSection: View {
+    let updater: Updater
+    @Bindable var settings: AppSettings
+
+    var body: some View {
+        LabeledContent("Agent HUD \(Updater.currentVersion)") {
+            HStack(spacing: 8) {
+                statusText
+                switch updater.status {
+                case .available(let r):
+                    Button(updater.viaHomebrew ? "Update to \(r.version)" : "Download \(r.version)") { updater.install() }
+                        .buttonStyle(.borderedProminent)
+                case .installing, .checking:
+                    ProgressView().controlSize(.small)
+                default:
+                    Button("Check Now") { updater.check() }
+                }
+            }
+        }
+        Toggle("Check for updates daily", isOn: $settings.checkForUpdates)
+        Toggle("Install updates automatically", isOn: $settings.installUpdatesAutomatically)
+            .disabled(!settings.checkForUpdates || !updater.viaHomebrew)
+            .help(updater.viaHomebrew ? "Runs brew upgrade in the background when no session is waiting on you, then relaunches"
+                  : "Available when installed with Homebrew")
+    }
+
+    @ViewBuilder
+    private var statusText: some View {
+        switch updater.status {
+        case .idle: EmptyView()
+        case .checking: Text("Checking…").foregroundStyle(.secondary)
+        case .upToDate: Text("Up to date").foregroundStyle(.secondary)
+        case .available: Text("New version").foregroundStyle(.orange)
+        case .installing: Text("Updating; Agent HUD will restart").foregroundStyle(.secondary)
+        case .failed(let msg): Text(msg).foregroundStyle(.red).lineLimit(1).help(msg)
+        }
     }
 }

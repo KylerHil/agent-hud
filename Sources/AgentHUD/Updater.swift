@@ -1,0 +1,112 @@
+import AgentHUDCore
+import AppKit
+import Observation
+
+/// Checks GitHub for a newer release (daily, and on demand) and installs it through Homebrew,
+/// which quits this copy, swaps in the new one, and relaunches it.
+@MainActor
+@Observable
+final class Updater {
+    enum Status: Equatable {
+        case idle, checking, upToDate, available(UpdateCheck.Release), installing, failed(String)
+    }
+
+    private let settings: AppSettings
+    private(set) var status: Status = .idle
+    @ObservationIgnored private var timer: Timer?
+    /// Asked before installing on its own, so an update never restarts the panel while an agent waits on you.
+    @ObservationIgnored var canAutoInstall: () -> Bool = { true }
+
+    static var currentVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    }
+
+    /// Installed with Homebrew (and brew is still there to upgrade it).
+    var viaHomebrew: Bool { UpdateCheck.brewCaskroom() != nil && UpdateCheck.brewBinary != nil }
+
+    var available: UpdateCheck.Release? {
+        if case .available(let r) = status { return r }
+        return nil
+    }
+
+    init(settings: AppSettings) { self.settings = settings }
+
+    func start() {
+        timer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkIfDue() }
+        }
+        // Give the app a moment to settle before the first check.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.checkIfDue() }
+    }
+
+    private func checkIfDue() {
+        guard settings.checkForUpdates else { return }
+        if Date().timeIntervalSince1970 - settings.lastUpdateCheck >= 24 * 3600 { check() }
+        else if let r = available { maybeAutoInstall(r) }
+    }
+
+    func check() {
+        guard status != .checking, status != .installing else { return }
+        status = .checking
+        var req = URLRequest(url: UpdateCheck.latestURL, timeoutInterval: 20)
+        req.setValue("AgentHUD/\(Self.currentVersion)", forHTTPHeaderField: "User-Agent")
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        URLSession.shared.dataTask(with: req) { data, response, error in
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let release = data.flatMap(UpdateCheck.parse)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.settings.lastUpdateCheck = Date().timeIntervalSince1970
+                    if let release, UpdateCheck.isNewer(release.version, than: Self.currentVersion) {
+                        self.status = .available(release)
+                        self.maybeAutoInstall(release)
+                    } else if release != nil || code == 404 {
+                        self.status = .upToDate
+                    } else {
+                        self.status = .failed(error?.localizedDescription ?? "GitHub returned \(code)")
+                    }
+                }
+            }
+        }.resume()
+    }
+
+    private func maybeAutoInstall(_ r: UpdateCheck.Release) {
+        guard settings.installUpdatesAutomatically, viaHomebrew, canAutoInstall() else { return }
+        install()
+    }
+
+    /// Homebrew: update the tap, upgrade (brew quits us first), then relaunch. It runs in its own process
+    /// so it outlives this one. Otherwise, the release page.
+    func install() {
+        guard viaHomebrew, let brew = UpdateCheck.brewBinary else {
+            NSWorkspace.shared.open(available?.page ?? UpdateCheck.releasesPage)
+            return
+        }
+        status = .installing
+        let log = Paths.home.appendingPathComponent("update.log").path
+        let script = """
+        {
+          date
+          "\(brew)" update --quiet
+          "\(brew)" upgrade --cask agent-hud
+        } >> '\(log)' 2>&1
+        /usr/bin/open -b com.xeratec.agenthud
+        """
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", script]
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        p.environment = env
+        do {
+            try p.run()
+            // Homebrew quits this app when it swaps in the new copy; still here after 5 minutes means it failed.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
+                guard let self, self.status == .installing else { return }
+                self.status = .failed("Update didn't finish; see ~/.agenthud/update.log")
+            }
+        } catch {
+            status = .failed(error.localizedDescription)
+        }
+    }
+}

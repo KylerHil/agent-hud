@@ -11,6 +11,7 @@ func color(_ hex: UInt32, _ a: CGFloat = 1) -> NSColor {
 }
 
 /// Draws on a 1024-point canvas; the macOS icon grid puts the rounded square at 100…924.
+/// Three session rows, like the panel: a status dot and a title bar on a card, working / needs you / idle.
 func draw(in ctx: CGContext) {
     let tile = CGRect(x: 100, y: 100, width: 824, height: 824)
     let shape = CGPath(roundedRect: tile, cornerWidth: 185, cornerHeight: 185, transform: nil)
@@ -19,83 +20,74 @@ func draw(in ctx: CGContext) {
     ctx.saveGState()
     ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: color(0x000000, 0.35).cgColor)
     ctx.addPath(shape)
-    ctx.setFillColor(color(0x1C1D24).cgColor)
+    ctx.setFillColor(color(0x1E1F23).cgColor)
     ctx.fillPath()
     ctx.restoreGState()
 
-    // Tile: deep slate, lighter at the top.
+    // Tile: charcoal, a little lighter at the top.
     ctx.saveGState()
     ctx.addPath(shape)
     ctx.clip()
-    let bg = CGGradient(colorsSpace: nil, colors: [color(0x3A3E52).cgColor, color(0x16171E).cgColor] as CFArray,
+    let bg = CGGradient(colorsSpace: nil, colors: [color(0x34363C).cgColor, color(0x1A1B1F).cgColor] as CFArray,
                         locations: [0, 1])!
     ctx.drawLinearGradient(bg, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 100), options: [])
-    // A faint glow behind the eye.
-    let glow = CGGradient(colorsSpace: nil, colors: [color(0xFF9F0A, 0.20).cgColor, color(0xFF9F0A, 0).cgColor] as CFArray,
-                          locations: [0, 1])!
-    ctx.drawRadialGradient(glow, startCenter: CGPoint(x: 512, y: 560), startRadius: 0,
-                           endCenter: CGPoint(x: 512, y: 560), endRadius: 380, options: [])
     ctx.restoreGState()
 
     // Hairline edge highlight.
     ctx.saveGState()
     ctx.addPath(CGPath(roundedRect: tile.insetBy(dx: 1.5, dy: 1.5), cornerWidth: 184, cornerHeight: 184, transform: nil))
-    ctx.setStrokeColor(color(0xFFFFFF, 0.10).cgColor)
+    ctx.setStrokeColor(color(0xFFFFFF, 0.12).cgColor)
     ctx.setLineWidth(3)
     ctx.strokePath()
     ctx.restoreGState()
 
-    // The eye: an almond from two arcs.
-    let c = CGPoint(x: 512, y: 560)
-    let halfW: CGFloat = 290, halfH: CGFloat = 170
-    let eye = CGMutablePath()
-    eye.move(to: CGPoint(x: c.x - halfW, y: c.y))
-    eye.addQuadCurve(to: CGPoint(x: c.x + halfW, y: c.y), control: CGPoint(x: c.x, y: c.y + halfH * 2))
-    eye.addQuadCurve(to: CGPoint(x: c.x - halfW, y: c.y), control: CGPoint(x: c.x, y: c.y - halfH * 2))
-    eye.closeSubpath()
+    // Three rows, top to bottom: working (green), needs you (orange), idle (gray).
+    let rows: [(dot: UInt32, glow: CGFloat)] = [(0x30D158, 0.55), (0xFF9F0A, 0.6), (0x8E8E93, 0)]
+    let cardW: CGFloat = 604, cardH: CGFloat = 150, gap: CGFloat = 46
+    let x0 = 512 - cardW / 2
+    let top: CGFloat = 512 + (cardH * 3 + gap * 2) / 2
+    for (i, row) in rows.enumerated() {
+        let y = top - CGFloat(i + 1) * cardH - CGFloat(i) * gap
+        let card = CGRect(x: x0, y: y, width: cardW, height: cardH)
+        let cardPath = CGPath(roundedRect: card, cornerWidth: 40, cornerHeight: 40, transform: nil)
 
-    ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -6), blur: 18, color: color(0x000000, 0.35).cgColor)
-    ctx.addPath(eye)
-    ctx.setFillColor(color(0xF2F2F5).cgColor)
-    ctx.fillPath()
-    ctx.restoreGState()
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -6), blur: 16, color: color(0x000000, 0.45).cgColor)
+        ctx.addPath(cardPath)
+        ctx.setFillColor(color(0x2B2D32).cgColor)
+        ctx.fillPath()
+        ctx.restoreGState()
 
-    ctx.saveGState()
-    ctx.addPath(eye)
-    ctx.clip()
-    let white = CGGradient(colorsSpace: nil, colors: [color(0xFFFFFF).cgColor, color(0xCFD1DA).cgColor] as CFArray,
-                           locations: [0, 1])!
-    ctx.drawLinearGradient(white, start: CGPoint(x: c.x, y: c.y + halfH), end: CGPoint(x: c.x, y: c.y - halfH), options: [])
+        ctx.saveGState()
+        ctx.addPath(cardPath)
+        ctx.clip()
+        let face = CGGradient(colorsSpace: nil, colors: [color(0x3A3C42).cgColor, color(0x2A2C31).cgColor] as CFArray,
+                              locations: [0, 1])!
+        ctx.drawLinearGradient(face, start: CGPoint(x: 512, y: card.maxY), end: CGPoint(x: 512, y: card.minY), options: [])
+        ctx.restoreGState()
+        ctx.addPath(CGPath(roundedRect: card.insetBy(dx: 1.5, dy: 1.5), cornerWidth: 39, cornerHeight: 39, transform: nil))
+        ctx.setStrokeColor(color(0xFFFFFF, 0.10).cgColor)
+        ctx.setLineWidth(3)
+        ctx.strokePath()
 
-    // Iris: AgentHUD's "needs you" orange.
-    let irisR: CGFloat = 122
-    let iris = CGGradient(colorsSpace: nil, colors: [color(0xFFC04D).cgColor, color(0xFF9F0A).cgColor, color(0xE0620B).cgColor] as CFArray,
-                          locations: [0, 0.55, 1])!
-    ctx.addEllipse(in: CGRect(x: c.x - irisR, y: c.y - irisR, width: irisR * 2, height: irisR * 2))
-    ctx.clip()
-    ctx.drawRadialGradient(iris, startCenter: CGPoint(x: c.x - 30, y: c.y + 40), startRadius: 0,
-                           endCenter: c, endRadius: irisR, options: [.drawsAfterEndLocation])
-    ctx.restoreGState()
+        // Status dot, with a soft glow for the lit ones.
+        let r: CGFloat = 34
+        let c = CGPoint(x: card.minX + 86, y: card.midY)
+        if row.glow > 0 {
+            let glow = CGGradient(colorsSpace: nil, colors: [color(row.dot, row.glow).cgColor, color(row.dot, 0).cgColor] as CFArray,
+                                  locations: [0, 1])!
+            ctx.drawRadialGradient(glow, startCenter: c, startRadius: r * 0.6, endCenter: c, endRadius: r * 2.1, options: [])
+        }
+        ctx.setFillColor(color(row.dot).cgColor)
+        ctx.fillEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
+        ctx.setFillColor(color(0xFFFFFF, 0.28).cgColor)
+        ctx.fillEllipse(in: CGRect(x: c.x - r * 0.45, y: c.y + r * 0.1, width: r * 0.7, height: r * 0.55))
 
-    // Iris ring, pupil, catchlight.
-    ctx.setStrokeColor(color(0x8A3A05, 0.55).cgColor)
-    ctx.setLineWidth(6)
-    ctx.strokeEllipse(in: CGRect(x: c.x - irisR, y: c.y - irisR, width: irisR * 2, height: irisR * 2))
-    let pupilR: CGFloat = 54
-    ctx.setFillColor(color(0x14151B).cgColor)
-    ctx.fillEllipse(in: CGRect(x: c.x - pupilR, y: c.y - pupilR, width: pupilR * 2, height: pupilR * 2))
-    ctx.setFillColor(color(0xFFFFFF, 0.92).cgColor)
-    ctx.fillEllipse(in: CGRect(x: c.x - 64, y: c.y + 26, width: 40, height: 40))
-
-    // The menu bar's session dots: working, needs you, idle.
-    let dots: [(UInt32, CGFloat)] = [(0x30D158, 1), (0xFF9F0A, 1), (0x8E8E93, 1)]
-    let r: CGFloat = 30, gap: CGFloat = 38
-    let total = CGFloat(dots.count) * r * 2 + CGFloat(dots.count - 1) * gap
-    for (i, d) in dots.enumerated() {
-        let x = 512 - total / 2 + CGFloat(i) * (r * 2 + gap)
-        ctx.setFillColor(color(d.0, d.1).cgColor)
-        ctx.fillEllipse(in: CGRect(x: x, y: 235, width: r * 2, height: r * 2))
+        // Title bar.
+        let bar = CGRect(x: card.minX + 162, y: card.midY - 17, width: cardW - 162 - 64, height: 34)
+        ctx.addPath(CGPath(roundedRect: bar, cornerWidth: 17, cornerHeight: 17, transform: nil))
+        ctx.setFillColor(color(0x8A8C94, 0.85).cgColor)
+        ctx.fillPath()
     }
 }
 

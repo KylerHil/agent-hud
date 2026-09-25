@@ -67,6 +67,7 @@ struct AgentBadge: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .background(agent.tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .fixedSize() // never squeezed into a column by a long project name
     }
 }
 
@@ -81,6 +82,7 @@ struct SourceChip: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(Color.primary.opacity(0.14)))
+            .fixedSize()
     }
 }
 
@@ -94,6 +96,7 @@ struct Keycap: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.primary.opacity(0.16)))
+            .fixedSize()
     }
 }
 
@@ -254,6 +257,7 @@ struct ExpandedView: View {
                     tabs
                 }
                 if model.legacyHooks && !model.searching { legacyBanner }
+                if let r = model.updater.available, !model.searching { updateBanner(r) }
                 if forSnapshot {
                     list
                     Spacer(minLength: 0)
@@ -343,6 +347,26 @@ struct ExpandedView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 6)
+    }
+
+    /// Shown when an update is waiting (auto-install is off, or waits until nothing needs you).
+    private func updateBanner(_ r: UpdateCheck.Release) -> some View {
+        Button { model.updater.install() } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.down.circle.fill").foregroundStyle(Color.accentColor)
+                Text("Agent HUD \(r.version) is available.").foregroundStyle(.primary)
+                Spacer(minLength: 4)
+                Text(model.updater.status == .installing ? "Updating…" : "Update").fontWeight(.semibold)
+                    .foregroundStyle(Color.accentColor)
+            }
+            .font(.system(size: 10.5))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 8)
@@ -454,11 +478,13 @@ struct SessionRowView: View {
                     .truncationMode(.middle)
                     .layoutPriority(1)
                 if let sub = session.subpath {
+                    // Gives way first: the project name matters more than where inside it the agent is.
                     Text("› " + sub)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.head)
+                        .layoutPriority(-1)
                 }
                 if let host = session.hostLabel { SourceChip(label: host) }
                 if model.isMuted(session) {
@@ -477,6 +503,8 @@ struct SessionRowView: View {
                     Text(timeLabel(state))
                         .font(.system(size: 10.5).monospacedDigit())
                         .foregroundStyle(waiting ? Color.orange : state == .stale ? Color.yellow : .secondary)
+                        .lineLimit(1)
+                        .fixedSize()
                 }
             }
             subtitle(state)
@@ -581,7 +609,7 @@ struct SessionRowView: View {
             if session.isChat { return ("Reply ready", nil, false) }
             return (nil, session.lastMessage ?? session.title ?? session.lastPrompt, false)
         case .unknown:
-            return (nil, "no hook events yet" + (session.pid.map { " · pid \($0)" } ?? ""), false)
+            return (nil, "No hook events: started before hooks were installed?" + (session.pid.map { " · pid \($0)" } ?? ""), false)
         case .ended:
             return (nil, nil, false)
         }

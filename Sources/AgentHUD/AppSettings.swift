@@ -26,6 +26,11 @@ final class AppSettings {
     /// Experimental: ordinary chats in Claude and ChatGPT, through Accessibility.
     var watchChats: Bool { didSet { defaults.set(watchChats, forKey: "watchChats") } }
     var hotkeysEnabled: Bool { didSet { defaults.set(hotkeysEnabled, forKey: "hotkeysEnabled") } }
+    var checkForUpdates: Bool { didSet { defaults.set(checkForUpdates, forKey: "checkForUpdates") } }
+    var installUpdatesAutomatically: Bool {
+        didSet { defaults.set(installUpdatesAutomatically, forKey: "installUpdatesAutomatically") }
+    }
+    var lastUpdateCheck: Double { didSet { defaults.set(lastUpdateCheck, forKey: "lastUpdateCheck") } }
     var findShortcut: Shortcut { didSet { save(findShortcut, "findShortcut") } }
     var panelShortcut: Shortcut { didSet { save(panelShortcut, "panelShortcut") } }
     /// Notifications are paused until this time (seconds since 1970; 0 = not paused).
@@ -41,7 +46,8 @@ final class AppSettings {
             "notifyNeedsInput": true, "notifyFinished": false, "playSound": true, "remindMinutes": 0.0,
             "trackProcesses": true, "panelFilter": "all", "watchClaudeDesktop": true, "watchChatGPT": true,
             "watchChats": false, "hotkeysEnabled": true, "pausedUntil": 0.0, "idleGapMinutes": 10.0,
-            "dashboardRange": "today",
+            "dashboardRange": "today", "checkForUpdates": true, "installUpdatesAutomatically": true,
+            "lastUpdateCheck": 0.0,
         ])
         opacity = defaults.double(forKey: "opacity")
         collapsed = defaults.bool(forKey: "collapsed")
@@ -60,6 +66,9 @@ final class AppSettings {
         watchChatGPT = defaults.bool(forKey: "watchChatGPT")
         watchChats = defaults.bool(forKey: "watchChats")
         hotkeysEnabled = defaults.bool(forKey: "hotkeysEnabled")
+        checkForUpdates = defaults.bool(forKey: "checkForUpdates")
+        installUpdatesAutomatically = defaults.bool(forKey: "installUpdatesAutomatically")
+        lastUpdateCheck = defaults.double(forKey: "lastUpdateCheck")
         findShortcut = Self.load(defaults, "findShortcut") ?? .findDefault
         panelShortcut = Self.load(defaults, "panelShortcut") ?? .panelDefault
         pausedUntil = defaults.double(forKey: "pausedUntil")

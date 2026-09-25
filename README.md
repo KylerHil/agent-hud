@@ -25,7 +25,8 @@ watches and gets you there.
 ```
 
 Swift + SwiftUI, macOS 14+, no dependencies beyond what ships with macOS (`jq` is used by the
-hook installer: built into macOS 15+, and installed with the cask on 14). No network, no Dock icon.
+hook installer: built into macOS 15+, and installed with the cask on 14). No Dock icon. The only network
+request is a daily check of this repo's latest GitHub release, which you can turn off.
 
 ## Install
 
@@ -49,7 +50,10 @@ Then:
 macOS asks once to allow notifications, and once per terminal app for Automation (used to select
 the right tab when you click a session).
 
-**Update:** `brew upgrade --cask agent-hud`
+**Updates:** Agent HUD checks for a new release daily and, when installed with Homebrew, installs
+it in the background (`brew upgrade --cask agent-hud`) and relaunches. It waits until no session
+is waiting on you. Turn either off, or **Check Now**, under gear → General → Updates. By hand:
+`brew upgrade --cask agent-hud`.
 **Uninstall:** `brew uninstall --cask agent-hud`. Add `--zap` to also remove its hooks (with backups),
 settings and `~/.agenthud`.
 
@@ -162,7 +166,8 @@ Agent HUD's hooks were in it.
 
 - **Drag** the panel from anywhere; **resize** from its edges or the corner grip. Size and
   position are remembered. The list scrolls.
-- **Click** a row to bring its window forward: the exact Terminal/iTerm2 tab (by tty), the
+- **Click** a row to bring its window forward: the exact tmux pane (it switches the attached
+  client to that session and window, then brings that terminal forward), the exact Terminal/iTerm2 tab (by tty), the
   VS Code/Cursor window that already has the project open (read from the editor's list of open
   windows, so it never opens a second window for a subfolder), the Claude or ChatGPT app, else the
   folder in Finder.

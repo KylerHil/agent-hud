@@ -20,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                      focusPanel: { [unowned self] in panel.showForTyping() })
         setUpStatusItem()
         model.start()
+        model.updater.canAutoInstall = { [unowned self] in model.counts.attention == 0 }
+        model.updater.start()
         if settings.panelVisible { panel.show() }
         applyHotKeys()
     }
@@ -177,6 +179,11 @@ extension AppDelegate: NSMenuDelegate {
         add(menu, "Dashboard…", #selector(openDashboard), "")
         menu.addItem(.separator())
         add(menu, "Settings…", #selector(openSettings), ",")
+        if let r = model.updater.available {
+            add(menu, "Update to \(r.version)…", #selector(installUpdate), "")
+        } else {
+            add(menu, "Check for Updates…", #selector(checkForUpdates), "")
+        }
         add(menu, "Open Event Log", #selector(openLog), "")
         menu.addItem(.separator())
         add(menu, "Quit Agent HUD", #selector(quit), "q")
@@ -276,6 +283,14 @@ extension AppDelegate: NSMenuDelegate {
     @objc func togglePanel() { panel.toggle() }
     @objc func toggleCollapsed() { settings.collapsed.toggle(); panel.show() }
     @objc func toggleShowIdle() { settings.showIdle.toggle() }
+    @objc func checkForUpdates() {
+        model.updater.check()
+        model.openSettings(.general)
+        panel.show()
+    }
+
+    @objc func installUpdate() { model.updater.install() }
+
     @objc func openSettings() {
         model.openSettings()
         panel.show()

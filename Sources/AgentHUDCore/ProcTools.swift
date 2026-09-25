@@ -88,6 +88,8 @@ public enum ProcTools {
         public var tty: String?
         public var hostApp: String?
         public var hostKind: String?
+        /// The agent runs inside tmux: the tmux server is its ancestor instead of a terminal app.
+        public var inTmux = false
     }
 
     /// Walk up from `start` to find the agent process that spawned us and the app hosting it.
@@ -97,6 +99,7 @@ public enum ProcTools {
         var hops = 0
         while pid > 1, hops < 32, let e = entry(pid) {
             hops += 1
+            if e.comm == "tmux" || e.comm.hasPrefix("tmux: ") { result.inTmux = true }
             if result.agentPid == nil, let kind = agentKind(pid: pid, comm: e.comm), agent == nil || kind == agent {
                 result.agentPid = pid
                 result.tty = e.tty
@@ -108,7 +111,10 @@ public enum ProcTools {
             pid = e.ppid
         }
         if result.tty == nil { result.tty = entry(start)?.tty }
-        result.hostKind = hostKind(app: result.hostApp, termProgram: env["TERM_PROGRAM"])
+        // The tmux server is daemonized, so nothing above it names the terminal; the pane is found at click time.
+        result.hostKind = result.inTmux && result.hostApp == nil ? "tmux"
+            : hostKind(app: result.hostApp, termProgram: env["TERM_PROGRAM"] == "tmux" ? nil : env["TERM_PROGRAM"])
+        if result.hostKind == nil, env["TMUX"] != nil { result.hostKind = "tmux" }
         if result.hostApp == nil, let kind = result.hostKind { result.hostApp = defaultAppPath(forKind: kind) }
         return result
     }

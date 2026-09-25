@@ -4,6 +4,11 @@ import AppKit
 /// Brings a session's window to the front, as precisely as the host app allows.
 enum Focuser {
     static func focus(_ s: Session) {
+        // tmux: select the pane, then bring forward whichever terminal is attached to it.
+        if let tty = s.tty, s.hostKind == "tmux" || s.hostKind == nil, case .some(let client) = Tmux.select(tty: tty) {
+            if let client { focusTerminal(tty: client.tty, pid: client.pid) }
+            return
+        }
         switch s.hostKind {
         case "terminal":
             if let tty = s.tty, runScript(terminalScript(tty: tty)) { return }
@@ -24,7 +29,24 @@ enum Focuser {
             NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: app), configuration: .init())
             return
         }
-        openFolder(s)
+        // No host app on record (started before hooks, or an unusual terminal): try the terminals that
+        // can be searched by tty before giving up. Finder is only opened from the context menu.
+        if let tty = s.tty, focusTerminal(tty: tty, pid: s.pid) { return }
+        NSSound.beep()
+    }
+
+    /// Terminal or iTerm2 tab with this tty, else the app that owns the process.
+    @discardableResult
+    static func focusTerminal(tty: String, pid: Int32?) -> Bool {
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        if running.contains("com.apple.Terminal"), runScript(terminalScript(tty: tty)) { return true }
+        if running.contains("com.googlecode.iterm2"), runScript(itermScript(tty: tty)) { return true }
+        if let pid, let app = ProcTools.ancestry(from: pid, agent: nil, env: [:]).hostApp,
+           FileManager.default.fileExists(atPath: app) {
+            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: app), configuration: .init())
+            return true
+        }
+        return false
     }
 
     /// The open editor window containing the session, else its project root.

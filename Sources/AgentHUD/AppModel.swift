@@ -59,6 +59,7 @@ final class AppModel {
     /// Hooks still pointing at AgentWatch's reporter, from before the rename.
     private(set) var legacyHooks = false
     let history: HistoryModel
+    let updater: Updater
     /// Sessions whose notifications are muted until the app quits.
     private(set) var muted: Set<String> = []
     private(set) var context: [String: TranscriptProbe.ContextUsage] = [:]
@@ -83,6 +84,7 @@ final class AppModel {
     init(settings: AppSettings) {
         self.settings = settings
         history = HistoryModel(settings: settings)
+        updater = Updater(settings: settings)
     }
 
     func openDashboard() { open(.dashboard) }
