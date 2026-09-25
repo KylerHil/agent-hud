@@ -9,6 +9,8 @@ public enum ProcTools {
         public let comm: String
         public let tty: String?
         public var started: Date? = nil
+        /// Exited but not yet reaped by its parent: the name survives, the cwd and executable don't.
+        public var zombie = false
     }
 
     public static func entry(_ pid: pid_t) -> Entry? {
@@ -43,7 +45,8 @@ public enum ProcTools {
         }
         let tv = info.kp_proc.p_un.__p_starttime
         let started = tv.tv_sec > 0 ? Date(timeIntervalSince1970: TimeInterval(tv.tv_sec) + TimeInterval(tv.tv_usec) / 1e6) : nil
-        return Entry(pid: info.kp_proc.p_pid, ppid: info.kp_eproc.e_ppid, comm: comm, tty: tty, started: started)
+        return Entry(pid: info.kp_proc.p_pid, ppid: info.kp_eproc.e_ppid, comm: comm, tty: tty, started: started,
+                     zombie: info.kp_proc.p_stat == SZOMB)
     }
 
     public static func executablePath(_ pid: pid_t) -> String? {

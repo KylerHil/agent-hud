@@ -2,7 +2,7 @@ import XCTest
 @testable import AgentHUDCore
 
 final class ScannerTests: XCTestCase {
-    func proc(_ pid: Int32, _ agent: AgentKind = .claude, cwd: String = "/w/p") -> ProcessScanner.AgentProcess {
+    func proc(_ pid: Int32, _ agent: AgentKind = .claude, cwd: String? = "/w/p") -> ProcessScanner.AgentProcess {
         .init(pid: pid, agent: agent, cwd: cwd, tty: nil, hostApp: nil, hostKind: "vscode")
     }
 
@@ -26,6 +26,11 @@ final class ScannerTests: XCTestCase {
         XCTAssertEqual(store.sessions["claude:pid-12"]?.state, .unknown)
         // Stable: a second scan with the same processes changes nothing (no log flooding).
         XCTAssertEqual(ProcessScanner.reconcile(store: store, processes: [proc(10), proc(12)]), [])
+    }
+
+    func testProcessesWithoutAFolderDoNotGetPlaceholders() {
+        let store = SessionStore()
+        XCTAssertEqual(ProcessScanner.reconcile(store: store, processes: [proc(30, cwd: nil), proc(31, cwd: "/")]), [])
     }
 
     func testCodexProcessesDoNotGetPlaceholders() {

@@ -17,7 +17,7 @@ public enum ProcessScanner {
     public static let placeholderMinAge: TimeInterval = 30
 
     public static func agentProcesses() -> [AgentProcess] {
-        let candidates = ProcTools.allProcesses().filter { ["claude", "claude.exe", "codex"].contains($0.comm) }
+        let candidates = ProcTools.allProcesses().filter { !$0.zombie && ["claude", "claude.exe", "codex"].contains($0.comm) }
         return candidates.compactMap { e in
             guard let kind = ProcTools.agentKind(pid: e.pid, comm: e.comm) else { return nil }
             let anc = ProcTools.ancestry(from: e.pid, agent: kind, env: [:])
@@ -48,6 +48,8 @@ public enum ProcessScanner {
         }
         for p in processes where p.agent == .claude && !claimed.contains(p.pid) && p.hostKind != "claude-desktop" {
             if let started = p.started, now.timeIntervalSince(started) < placeholderMinAge { continue }
+            // Without a working folder there's no project to show or window to jump to.
+            guard let cwd = p.cwd, !cwd.isEmpty, cwd != "/" else { continue }
             var e = AgentEvent(ts: now.timeIntervalSince1970, agent: .claude, event: "ProcessSeen",
                                sessionId: "pid-\(p.pid)")
             e.pid = p.pid
