@@ -175,6 +175,7 @@ public struct Session: Identifiable, Equatable, Sendable {
         case "chatgpt": return "ChatGPT app"
         case "codex-desktop": return "Codex app"
         case "tmux": return "tmux"
+        case "coordinator": return "Coordinator"
         case let k?: return k.prefix(1).uppercased() + k.dropFirst()
         }
     }

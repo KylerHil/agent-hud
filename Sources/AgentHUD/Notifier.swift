@@ -106,6 +106,29 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         post(id: "needs-\(s.id)", session: s, category: Self.needsCategory, title: title, body: body)
     }
 
+    /// A pair that needs you (plan to approve, stuck, round limit) or finished. Hooks can't see these.
+    func pairChanged(_ old: PairState?, _ new: PairState) {
+        guard old?.status != new.status || (new.status == .waitingOnYou && old?.reason != new.reason),
+              !settings.notificationsPaused else { return }
+        let title: String
+        switch new.status {
+        case .waitingOnYou where new.phase == .approvePlan: title = "Plan ready to approve"
+        case .waitingOnYou: title = "Pair needs you"
+        case .done: title = "Pair finished"
+        default: return
+        }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.subtitle = "\(new.slug) · \(new.config.builder.displayName) + \(new.config.reviewer.displayName)"
+        content.body = new.status == .done ? "\(new.config.reviewer.displayName) approved after \(new.round) round\(new.round == 1 ? "" : "s")."
+            : new.reason ?? ""
+        content.userInfo = ["pair": new.id]
+        content.threadIdentifier = "pair-" + new.id
+        if settings.playSound { content.sound = .default }
+        center.add(UNNotificationRequest(identifier: "pair-\(new.id)-\(new.status.rawValue)", content: content, trigger: nil))
+        if !authorized && settings.playSound { NSSound(named: "Glass")?.play() }
+    }
+
     private func post(id: String, session s: Session, category: String, title: String, body: String) {
         let content = UNMutableNotificationContent()
         content.title = title
@@ -125,6 +148,10 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             didReceive response: UNNotificationResponse) async {
+        if let pair = response.notification.request.content.userInfo["pair"] as? String {
+            await MainActor.run { model.actions.openCoordinatorPair(pair) }
+            return
+        }
         guard let id = response.notification.request.content.userInfo["session"] as? String else { return }
         let action = response.actionIdentifier
         let requestID = response.notification.request.identifier

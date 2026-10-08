@@ -16,8 +16,8 @@ public enum ProcessScanner {
     /// Only a process that has lived this long gets a placeholder row.
     public static let placeholderMinAge: TimeInterval = 30
 
-    public static func agentProcesses() -> [AgentProcess] {
-        let candidates = ProcTools.allProcesses().filter { !$0.zombie && ["claude", "claude.exe", "codex"].contains($0.comm) }
+    public static func agentProcesses(table: [ProcTools.Entry]? = nil) -> [AgentProcess] {
+        let candidates = (table ?? ProcTools.allProcesses()).filter { !$0.zombie && ["claude", "claude.exe", "codex"].contains($0.comm) }
         return candidates.compactMap { e in
             guard let kind = ProcTools.agentKind(pid: e.pid, comm: e.comm) else { return nil }
             let anc = ProcTools.ancestry(from: e.pid, agent: kind, env: [:])

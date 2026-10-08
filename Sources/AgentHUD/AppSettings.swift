@@ -23,6 +23,8 @@ final class AppSettings {
     var watchChatGPT: Bool { didSet { defaults.set(watchChatGPT, forKey: "watchChatGPT") } }
     /// Experimental: ordinary chats in Claude and ChatGPT, through Accessibility.
     var watchChats: Bool { didSet { defaults.set(watchChats, forKey: "watchChats") } }
+    /// Coordinator replies to Claude in VS Code: press Return in the editor after typing the reply in.
+    var editorAutoSend: Bool { didSet { defaults.set(editorAutoSend, forKey: "editorAutoSend") } }
     var hotkeysEnabled: Bool { didSet { defaults.set(hotkeysEnabled, forKey: "hotkeysEnabled") } }
     /// One row per project instead of one per session.
     var groupByProject: Bool { didSet { defaults.set(groupByProject, forKey: "groupByProject") } }
@@ -34,6 +36,7 @@ final class AppSettings {
     var findShortcut: Shortcut { didSet { save(findShortcut, "findShortcut") } }
     var panelShortcut: Shortcut { didSet { save(panelShortcut, "panelShortcut") } }
     var collapseShortcut: Shortcut { didSet { save(collapseShortcut, "collapseShortcut") } }
+    var coordinatorShortcut: Shortcut { didSet { save(coordinatorShortcut, "coordinatorShortcut") } }
     /// How much the menu bar pill says while the panel is collapsed to it.
     var pillDetail: PillDetail { didSet { defaults.set(pillDetail.rawValue, forKey: "pillDetail") } }
     /// Notifications are paused until this time (seconds since 1970; 0 = not paused).
@@ -89,6 +92,7 @@ final class AppSettings {
         watchClaudeDesktop = defaults.bool(forKey: "watchClaudeDesktop")
         watchChatGPT = defaults.bool(forKey: "watchChatGPT")
         watchChats = defaults.bool(forKey: "watchChats")
+        editorAutoSend = defaults.bool(forKey: "editorAutoSend")
         hotkeysEnabled = defaults.bool(forKey: "hotkeysEnabled")
         groupByProject = defaults.bool(forKey: "groupByProject")
         checkForUpdates = defaults.bool(forKey: "checkForUpdates")
@@ -97,6 +101,7 @@ final class AppSettings {
         findShortcut = Self.load(defaults, "findShortcut") ?? .findDefault
         panelShortcut = Self.load(defaults, "panelShortcut") ?? .panelDefault
         collapseShortcut = Self.load(defaults, "collapseShortcut") ?? .collapseDefault
+        coordinatorShortcut = Self.load(defaults, "coordinatorShortcut") ?? .coordinatorDefault
         pillDetail = defaults.string(forKey: "pillDetail").flatMap(PillDetail.init(rawValue:)) ?? .icon
         pausedUntil = defaults.double(forKey: "pausedUntil")
         idleGapMinutes = defaults.double(forKey: "idleGapMinutes")

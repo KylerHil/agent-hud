@@ -5,7 +5,7 @@ import SwiftUI
 final class FloatingPanel: NSPanel {
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 320, height: 60),
-                   styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+                   styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView, .resizable],
                    backing: .buffered, defer: false)
         isFloatingPanel = true
         level = .floating
@@ -16,7 +16,9 @@ final class FloatingPanel: NSPanel {
         hasShadow = true
         isMovableByWindowBackground = true
         isReleasedWhenClosed = false
-        becomesKeyOnlyIfNeeded = true
+        // NSHostingView does not promise needsPanelToBecomeKey for every SwiftUI control.
+        // Let clicks focus the panel so lists, buttons and the composer work consistently.
+        becomesKeyOnlyIfNeeded = false
     }
 
     override var canBecomeKey: Bool { true }
@@ -30,6 +32,8 @@ final class PanelController {
     private let hosting: NSHostingView<PanelRootView>
     private static let originKey = "panelTopLeft"
     private static let sizeKey = "panelSize"
+    /// Opt-in lifecycle diagnostics; never include session, draft or message content.
+    private static let traceEnabled = ProcessInfo.processInfo.environment["AGENTHUD_PANEL_TRACE"] == "1"
     static let defaultSize = CGSize(width: 340, height: 500)
     static let minLargeSize = CGSize(width: 560, height: 420)
 
@@ -39,6 +43,7 @@ final class PanelController {
         case .dashboard: "dashboardSize"
         case .settings: "settingsSize"
         case .questions: "questionsSize"
+        case .coordinator: "coordinatorSize"
         }
     }
 
@@ -48,6 +53,7 @@ final class PanelController {
         case .dashboard: CGSize(width: 800, height: 720)
         case .settings: CGSize(width: 580, height: 600)
         case .questions: CGSize(width: 760, height: 660)
+        case .coordinator: CGSize(width: 1180, height: 760)
         }
     }
     static let minSize = CGSize(width: 260, height: 160)
@@ -84,6 +90,7 @@ final class PanelController {
     /// Shows the panel, or the menu bar pill when it's collapsed.
     func show() {
         model.settings.panelVisible = true
+        syncWindow()
         if !model.settings.collapsed { panel.orderFrontRegardless() }
     }
 
@@ -101,29 +108,39 @@ final class PanelController {
         } else if panel.isVisible {
             panel.orderOut(nil)
         }
+        if Self.traceEnabled {
+            let trace = "agenthud panel syncWindow collapsed=\(model.settings.collapsed) panelVisible=\(model.settings.panelVisible) isVisible=\(panel.isVisible) frame=\(panel.frame)\n"
+            FileHandle.standardError.write(Data(trace.utf8))
+        }
     }
 
     /// Shows the panel and takes keystrokes (for search) without activating the app, like Spotlight.
     func showForTyping() {
+        model.settings.collapsed = false
         show()
         panel.makeKeyAndOrderFront(nil)
     }
 
     func applyOpacity(hovering: Bool) {
-        panel.alphaValue = hovering ? 1 : max(0.2, model.settings.opacity)
+        // You type into the Coordinator: it never fades.
+        panel.alphaValue = hovering || model.mode == .coordinator ? 1 : max(0.2, model.settings.opacity)
     }
 
     private func observeSettings() {
         withObservationTracking {
             _ = model.settings.collapsed
+            _ = model.settings.panelVisible
             _ = model.settings.opacity
             _ = model.mode
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
-                self.applyMode(animate: true)
+                // Switch the hosted hierarchy and frame together; visibility should not wait
+                // for a borderless-window animation to finish.
+                self.applyMode(animate: false)
                 self.syncWindow()
                 self.applyOpacity(hovering: false)
+                self.refreshContent()
                 self.observeSettings()
             }
         }
@@ -133,7 +150,10 @@ final class PanelController {
 
     /// The list, dashboard and settings each remember their own size.
     private var sizeKey: String { Self.sizeKey(model.mode) }
-    private var currentMinSize: CGSize { model.mode.isLarge ? Self.minLargeSize : Self.minSize }
+    private var currentMinSize: CGSize {
+        if model.mode == .coordinator { return CGSize(width: 940, height: 520) }
+        return model.mode.isLarge ? Self.minLargeSize : Self.minSize
+    }
 
     private var savedSize: CGSize {
         let fallback = Self.defaultSize(model.mode)
@@ -162,9 +182,18 @@ final class PanelController {
             }
             wasLarge = large
         }
-        panel.styleMask.insert(.resizable)
+        // Configure the window style once, before attaching NSHostingView. Setting styleMask
+        // here may rebuild AppKit's frame hierarchy even when only visibility changed.
         panel.minSize = currentMinSize
         setSize(savedSize, animate: animate)
+    }
+
+    /// Keep AppKit's displayed surface in step with the hosted view after a mode/frame change.
+    private func refreshContent() {
+        hosting.needsLayout = true
+        hosting.layoutSubtreeIfNeeded()
+        hosting.needsDisplay = true
+        if panel.isVisible { panel.displayIfNeeded() }
     }
 
     func setSize(_ size: CGSize, animate: Bool = false) {

@@ -1,0 +1,38 @@
+{
+  "name": "agenthud-workspace-bridge",
+  "displayName": "Agent HUD Workspace Bridge",
+  "description": "Connect this exact VS Code workspace to Agent HUD and coordinate broker-owned Claude and Codex tasks.",
+  "version": "0.1.1",
+  "publisher": "agenthud",
+  "license": "UNLICENSED",
+  "engines": { "vscode": "^1.95.0" },
+  "categories": ["Other"],
+  "main": "./extension.js",
+  "extensionKind": ["ui"],
+  "activationEvents": ["onStartupFinished"],
+  "capabilities": { "untrustedWorkspaces": { "supported": "limited", "description": "Workspace discovery is available; execution requires workspace trust." } },
+  "contributes": {
+    "commands": [
+      { "command": "agenthud.assign", "title": "Agent HUD: Assign Work", "icon": "$(add)" },
+      { "command": "agenthud.reply", "title": "Agent HUD: Send Follow-up" },
+      { "command": "agenthud.answer", "title": "Agent HUD: Answer Agent" },
+      { "command": "agenthud.interrupt", "title": "Agent HUD: Interrupt Turn" },
+      { "command": "agenthud.resume", "title": "Agent HUD: Resume Stopped Session" },
+      { "command": "agenthud.result", "title": "Agent HUD: Review Result" },
+      { "command": "agenthud.reconnect", "title": "Agent HUD: Reconnect Workspace Bridge", "icon": "$(refresh)" }
+    ],
+    "views": { "explorer": [{ "id": "agenthud.tasks", "name": "Agent HUD Tasks" }] },
+    "viewsWelcome": [{ "view": "agenthud.tasks", "contents": "Assign a task in this workspace. Agents run in a persistent local broker and survive editor reloads.\n[Assign Work](command:agenthud.assign)" }],
+    "menus": { "view/title": [
+      { "command": "agenthud.assign", "when": "view == agenthud.tasks", "group": "navigation" },
+      { "command": "agenthud.reconnect", "when": "view == agenthud.tasks", "group": "navigation" }
+    ] },
+    "configuration": {
+      "title": "Agent HUD",
+      "properties": {
+        "agenthud.brokerPath": { "type": "string", "default": "", "scope": "machine", "description": "Optional absolute broker executable path. Defaults to the broker bundled with this extension." },
+        "agenthud.home": { "type": "string", "default": "", "scope": "machine", "description": "Optional Agent HUD state directory; must match the desktop app's AGENTHUD_HOME." }
+      }
+    }
+  }
+}

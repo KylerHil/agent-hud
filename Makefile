@@ -27,9 +27,10 @@ app: build ## Assemble and ad-hoc sign build/AgentHUD.app (for local use)
 	@rm -rf $(APP)
 	@mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
-	cp $(BUILD_DIR)/AgentHUD $(BUILD_DIR)/agenthud-report $(APP)/Contents/MacOS/
+	cp $(BUILD_DIR)/AgentHUD $(BUILD_DIR)/agenthud-report $(BUILD_DIR)/agenthud-broker $(APP)/Contents/MacOS/
 	cp Resources/AppIcon.icns Resources/PrivacyInfo.xcprivacy $(APP)/Contents/Resources/
 	codesign --force --sign - --timestamp=none $(APP)/Contents/MacOS/agenthud-report
+	codesign --force --sign - --timestamp=none $(APP)/Contents/MacOS/agenthud-broker
 	codesign --force --sign - --timestamp=none $(APP)
 	@echo "built $(APP)"
 
@@ -79,3 +80,9 @@ release-dry-run: ## Build the release zip and cask into build/release without pu
 
 clean: ## Remove build outputs
 	rm -rf .build build
+
+vscode-package: build ## Package the VS Code workspace bridge, including its local broker
+	python3 scripts/package-vscode.py
+
+vscode-install: vscode-package ## Install the bridge into VS Code; reload existing windows if requested
+	"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" --install-extension build/agenthud-workspace-bridge.vsix --force

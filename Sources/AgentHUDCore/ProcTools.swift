@@ -18,7 +18,7 @@ public enum ProcTools {
         var size = MemoryLayout<kinfo_proc>.stride
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
         guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0, info.kp_proc.p_pid == pid else { return nil }
-        return makeEntry(info)
+        return makeEntry(info, tty: terminalName(info.kp_eproc.e_tdev))
     }
 
     public static func allProcesses() -> [Entry] {
@@ -29,19 +29,37 @@ public enum ProcTools {
         var buf = [kinfo_proc](repeating: kinfo_proc(), count: count)
         size = count * MemoryLayout<kinfo_proc>.stride
         guard sysctl(&mib, 4, &buf, &size, nil, 0) == 0 else { return [] }
-        return buf.prefix(size / MemoryLayout<kinfo_proc>.stride).map(makeEntry)
+        return makeEntries(buf.prefix(size / MemoryLayout<kinfo_proc>.stride), resolveTTY: terminalName)
     }
 
-    private static func makeEntry(_ info: kinfo_proc) -> Entry {
+    /// Many processes share a controlling terminal. Resolve each device once in this snapshot;
+    /// devname walks /dev, and repeating that work for every child process is expensive.
+    /// Cache misses too, but keep no mapping across snapshots: devices can disappear or be reused.
+    static func makeEntries(_ infos: ArraySlice<kinfo_proc>, resolveTTY: (dev_t) -> String?) -> [Entry] {
+        var names: [dev_t: String?] = [:]
+        return infos.map { info in
+            let device = info.kp_eproc.e_tdev
+            let tty: String?
+            if device == -1 { tty = nil }
+            else if let cached = names[device] { tty = cached }
+            else {
+                tty = resolveTTY(device)
+                names[device] = .some(tty)
+            }
+            return makeEntry(info, tty: tty)
+        }
+    }
+
+    private static func terminalName(_ device: dev_t) -> String? {
+        guard device != -1, let name = devname(device, S_IFCHR) else { return nil }
+        let value = String(cString: name)
+        return value == "??" ? nil : value
+    }
+
+    private static func makeEntry(_ info: kinfo_proc, tty: String?) -> Entry {
         var p = info.kp_proc
         let comm = withUnsafePointer(to: &p.p_comm) {
             $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXCOMLEN) + 1) { String(cString: $0) }
-        }
-        let dev = info.kp_eproc.e_tdev
-        var tty: String?
-        if dev != -1, let name = devname(dev, S_IFCHR) {
-            let s = String(cString: name)
-            if s != "??" { tty = s }
         }
         let tv = info.kp_proc.p_un.__p_starttime
         let started = tv.tv_sec > 0 ? Date(timeIntervalSince1970: TimeInterval(tv.tv_sec) + TimeInterval(tv.tv_usec) / 1e6) : nil
@@ -150,8 +168,8 @@ public enum ProcTools {
     }
 
     /// Whether an app whose main executable is `<bundle>/Contents/MacOS/<name>` is running.
-    public static func isAppRunning(executableName name: String, bundleName: String) -> Bool {
-        allProcesses().contains { e in
+    public static func isAppRunning(executableName name: String, bundleName: String, table: [Entry]? = nil) -> Bool {
+        (table ?? allProcesses()).contains { e in
             e.comm == name && (executablePath(e.pid)?.hasSuffix("/\(bundleName)/Contents/MacOS/\(name)") ?? false)
         }
     }

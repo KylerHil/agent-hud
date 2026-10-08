@@ -42,6 +42,20 @@ struct PanelActions {
     /// Makes the panel take keystrokes, for the search field.
     var focusPanel: () -> Void = {}
     var showPanel: () -> Void = {}
+    var openCoordinator: () -> Void = {}
+    var openCoordinatorSession: (String) -> Void = { _ in }
+    var openCoordinatorPair: (String) -> Void = { _ in }
+}
+
+private struct PanelControllerKey: EnvironmentKey {
+    static let defaultValue: PanelController? = nil
+}
+
+extension EnvironmentValues {
+    var panelController: PanelController? {
+        get { self[PanelControllerKey.self] }
+        set { self[PanelControllerKey.self] = newValue }
+    }
 }
 
 // MARK: - Small pieces
@@ -139,11 +153,13 @@ struct PanelRootView: View {
         .padding(8) // room for the attention glow
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onHover { controller?.applyOpacity(hovering: $0) }
-        // Drag from anywhere moves the window; rows ignore the click that ends a drag.
+        // The compact list can move from any row. In the Coordinator, only its pane headers
+        // move the window: text selection, scrollbars and composer controls keep their drags.
         .simultaneousGesture(
             DragGesture(minimumDistance: 3)
                 .onChanged { _ in controller?.dragChanged() }
-                .onEnded { _ in controller?.dragEnded() }
+                .onEnded { _ in controller?.dragEnded() },
+            including: model.mode == .coordinator ? .subviews : .all
         )
     }
 }
@@ -244,7 +260,12 @@ struct ExpandedView: View {
     var body: some View {
         let attention = model.counts.attention > 0
         VStack(spacing: 0) {
-            if model.mode == .dashboard {
+            if model.mode == .coordinator {
+                CoordinatorView(model: model.coordinator) { model.mode = .list }
+                    .environment(\.panelController, controller)
+                    .onAppear { model.coordinator.start() }
+                    .onDisappear { model.coordinator.stop() }
+            } else if model.mode == .dashboard {
                 DashboardView(model: model, forSnapshot: forSnapshot)
             } else if model.mode == .today {
                 TodayView(model: model, forSnapshot: forSnapshot)
@@ -300,6 +321,7 @@ struct ExpandedView: View {
             EyeToggle(model: model)
             if title { Text("Agent HUD").font(.system(size: 12, weight: .semibold)).lineLimit(1).fixedSize() }
             Spacer(minLength: 6)
+            CoordinatorButton(model: model, compact: compactToggle)
             DensityToggle(settings: model.settings, compact: compactToggle)
             if model.quickAnswers.count > 0 {
                 Button { model.openQuestions() } label: {
@@ -1317,6 +1339,40 @@ struct PaletteActionRow: View {
     }
 }
 
+// MARK: - Coordinator
+
+/// Opens the Coordinator in the panel, one click from the list; counts what's waiting on you there.
+struct CoordinatorButton: View {
+    let model: AppModel
+    var compact = false
+
+    var body: some View {
+        let waiting = model.coordinator.approvals.count
+        Button { model.openCoordinator() } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(.system(size: compact ? 11 : 9.5, weight: .semibold))
+                if !compact { Text("Coordinator").font(.system(size: 10, weight: .semibold)) }
+                if waiting > 0 {
+                    Text("\(waiting)").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 4).frame(minWidth: 14, minHeight: 13)
+                        .background(Capsule().fill(Color.orange))
+                }
+            }
+            .padding(.horizontal, compact ? 5 : 7)
+            .padding(.vertical, compact ? 3 : 4)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .fixedSize()
+        .help("Open the Coordinator (\(model.settings.coordinatorShortcut.display))"
+              + (waiting > 0 ? " · \(waiting) waiting on you" : ""))
+        .accessibilityLabel("Open the Coordinator")
+    }
+}
+
 // MARK: - Simple / Detailed
 
 /// The list's density, set right from its header and remembered.
@@ -1485,6 +1541,9 @@ struct PanelMenu: View {
             } label: {
                 Label("Find a Session  \(model.settings.findShortcut.display)", systemImage: "magnifyingglass")
             }
+            Button { model.actions.openCoordinator() } label: {
+                Label("Coordinator  \(model.settings.coordinatorShortcut.display)", systemImage: "bubble.left.and.bubble.right")
+            }
             Button { model.open(.today) } label: { Label("Today's Time", systemImage: "clock") }
             Button { model.actions.openDashboard() } label: { Label("Dashboard", systemImage: "chart.bar.xaxis") }
             if model.canSyncDotOrder {
@@ -1507,7 +1566,7 @@ struct PanelMenu: View {
         .controlSize(.small)
         .menuIndicator(.visible)
         .fixedSize()
-        .help("Find, today's time, dashboard and settings")
+        .help("Find, Coordinator, today's time, dashboard and settings")
         .accessibilityLabel("Menu")
     }
 }

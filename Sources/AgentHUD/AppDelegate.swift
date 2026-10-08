@@ -20,8 +20,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.onTick = { [unowned self] in notifier.tick() }
         model.actions = PanelActions(openDashboard: { [unowned self] in openDashboard() },
                                      focusPanel: { [unowned self] in panel.showForTyping() },
-                                     showPanel: { [unowned self] in panel.show() })
+                                     showPanel: { [unowned self] in panel.show() },
+                                     openCoordinator: { [unowned self] in model.openCoordinator() },
+                                     openCoordinatorSession: { [unowned self] id in model.openCoordinator(session: id) },
+                                     openCoordinatorPair: { [unowned self] id in model.openCoordinator(pair: id) })
+        model.broker.onPairChange = { [unowned self] old, new in notifier.pairChanged(old, new) }
         setUpStatusItem()
+        installEditMenu()
         model.start()
         model.updater.canAutoInstall = { [unowned self] in model.counts.attention == 0 }
         model.updater.start()
@@ -38,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotKeys.shared.unregisterAll()
         if settings.hotkeysEnabled && !model.recordingShortcut {
             let find = settings.findShortcut, show = settings.panelShortcut, pill = settings.collapseShortcut
+            let coord = settings.coordinatorShortcut
             HotKeys.shared.register(id: 1, keyCode: find.keyCode, modifiers: find.modifiers) { [weak self] in self?.toggleSearch() }
             HotKeys.shared.register(id: 2, keyCode: show.keyCode, modifiers: show.modifiers) { [weak self] in self?.panel.toggle() }
             HotKeys.shared.register(id: 3, keyCode: pill.keyCode, modifiers: pill.modifiers) { [weak self] in
@@ -45,12 +51,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self, self.settings.panelVisible else { return }
                 self.toggleCollapsed()
             }
+            HotKeys.shared.register(id: 4, keyCode: coord.keyCode, modifiers: coord.modifiers) { [weak self] in
+                // Again closes it, back to the list.
+                guard let self else { return }
+                if self.model.mode == .coordinator && self.panel.isVisible && !self.settings.collapsed {
+                    self.model.mode = .list
+                } else {
+                    self.model.openCoordinator()
+                }
+            }
         }
         withObservationTracking {
             _ = settings.hotkeysEnabled
             _ = settings.findShortcut
             _ = settings.panelShortcut
             _ = settings.collapseShortcut
+            _ = settings.coordinatorShortcut
             _ = model.recordingShortcut
         } onChange: { [weak self] in
             Task { @MainActor in self?.applyHotKeys() }
@@ -65,6 +81,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.beginSearch()
             panel.showForTyping()
         }
+    }
+
+    /// A menu-bar app has no menu bar, so ⌘C / ⌘V / ⌘A had nothing to trigger: copying from the Coordinator and
+    /// pasting into its composer need an Edit menu. It's never shown; it only carries the key equivalents.
+    private func installEditMenu() {
+        let main = NSMenu()
+        let appItem = NSMenuItem()
+        appItem.submenu = NSMenu(title: "Agent HUD")
+        main.addItem(appItem)
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        let editItem = NSMenuItem()
+        editItem.submenu = edit
+        main.addItem(editItem)
+        NSApp.mainMenu = main
     }
 
     /// Opening the app again (Finder, Spotlight) while it runs brings the panel back.
@@ -290,6 +328,7 @@ extension AppDelegate: NSMenuDelegate {
                settings.collapseShortcut)
         add(menu, "Show Idle Sessions", #selector(toggleShowIdle), "").state = settings.showIdle ? .on : .off
         menu.addItem(pauseItem())
+        hotkey(add(menu, "Coordinator", #selector(openCoordinator), ""), settings.coordinatorShortcut)
         add(menu, "Dashboard…", #selector(openDashboard), "")
         if model.canSyncDotOrder {
             add(menu, "Sync Dot Order with AeroSpace", #selector(syncDotOrder), "")
@@ -399,6 +438,7 @@ extension AppDelegate: NSMenuDelegate {
         panel.show()
     }
     @objc func togglePanel() { panel.toggle() }
+    @objc func openCoordinator() { model.openCoordinator() }
     @objc func syncDotOrder() { model.syncDotOrder() }
     @objc func resetDotOrder() { settings.dotOrder = [] }
     @objc func toggleCollapsed() { settings.collapsed.toggle(); panel.show() }

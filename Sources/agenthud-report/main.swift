@@ -42,6 +42,11 @@ if !args.contains("--no-pid") {
     event.tty = anc.tty.map { "/dev/" + $0 }
     event.hostApp = anc.hostApp
     event.hostKind = anc.hostKind
+    // Started by Agent HUD's broker for the Coordinator: that's where it lives, whatever launched the broker.
+    if ProcessInfo.processInfo.environment["AGENTHUD_MANAGED"] == "1" {
+        event.hostApp = nil
+        event.hostKind = "coordinator"
+    }
 }
 EventLog.append(event)
 exit(0)

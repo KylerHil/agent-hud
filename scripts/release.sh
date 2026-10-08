@@ -45,10 +45,11 @@ rm -rf "$OUT" && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 $PLIST -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 $PLIST -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP/Contents/Info.plist"
-cp "$BIN/AgentHUD" "$BIN/agenthud-report" "$APP/Contents/MacOS/"
+cp "$BIN/AgentHUD" "$BIN/agenthud-report" "$BIN/agenthud-broker" "$APP/Contents/MacOS/"
 cp Resources/AppIcon.icns Resources/PrivacyInfo.xcprivacy "$APP/Contents/Resources/"
 # Ad-hoc signed: enough for Apple silicon to run it; the cask clears the download quarantine.
 codesign --force --sign - --identifier com.xeratec.agenthud.reporter "$APP/Contents/MacOS/agenthud-report"
+codesign --force --sign - --identifier com.xeratec.agenthud.broker "$APP/Contents/MacOS/agenthud-broker"
 codesign --force --sign - "$APP"
 codesign --verify --strict --deep "$APP"
 

@@ -140,6 +140,10 @@ struct SettingsView: View {
                     ShortcutRecorder(model: model, shortcut: $settings.collapseShortcut, fallback: .collapseDefault)
                 }
                 .disabled(!settings.hotkeysEnabled)
+                LabeledContent("Open the Coordinator") {
+                    ShortcutRecorder(model: model, shortcut: $settings.coordinatorShortcut, fallback: .coordinatorDefault)
+                }
+                .disabled(!settings.hotkeysEnabled)
             }
             Section("General") {
                 Toggle("Launch at login", isOn: $launchAtLogin)

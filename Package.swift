@@ -7,10 +7,12 @@ let package = Package(
     products: [
         .executable(name: "AgentHUD", targets: ["AgentHUD"]),
         .executable(name: "agenthud-report", targets: ["agenthud-report"]),
+        .executable(name: "agenthud-broker", targets: ["agenthud-broker"]),
     ],
     targets: [
         .target(name: "AgentHUDCore"),
         .executableTarget(name: "agenthud-report", dependencies: ["AgentHUDCore"]),
+        .executableTarget(name: "agenthud-broker", dependencies: ["AgentHUDCore"]),
         .executableTarget(name: "AgentHUD", dependencies: ["AgentHUDCore"]),
         .testTarget(name: "AgentHUDCoreTests", dependencies: ["AgentHUDCore"]),
     ]

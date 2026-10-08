@@ -4,10 +4,10 @@ import Observation
 
 /// What the panel is showing. Everything lives in the one panel; nothing opens a window of its own.
 enum PanelMode: Equatable {
-    case list, today, dashboard, settings, questions
+    case list, today, dashboard, settings, questions, coordinator
 
-    /// The dashboard and settings are roomier than the list, so the panel grows for them.
-    var isLarge: Bool { self == .dashboard || self == .settings || self == .questions }
+    /// The dashboard, settings and the Coordinator are roomier than the list, so the panel grows for them.
+    var isLarge: Bool { self == .dashboard || self == .settings || self == .questions || self == .coordinator }
 }
 
 enum SettingsTab: Hashable {
@@ -37,6 +37,8 @@ final class AppModel {
     let store = SessionStore()
     let activity = ActivityLog()
     let quickAnswers = QuickAnswersModel()
+    /// Sessions and pairs the Coordinator started, owned by agenthud-broker.
+    let broker = BrokerClient()
     let settings: AppSettings
     private(set) var now = Date()
 
@@ -87,10 +89,23 @@ final class AppModel {
     @ObservationIgnored private let chats = ChatWatcher()
     @ObservationIgnored private var tickCount = 0
 
+    /// The Coordinator's state; it opens inside the panel (`.coordinator`).
+    @ObservationIgnored private(set) var coordinator: CoordinatorModel!
+
     init(settings: AppSettings) {
         self.settings = settings
         history = HistoryModel(settings: settings)
         updater = Updater(settings: settings)
+        coordinator = CoordinatorModel(app: self)
+    }
+
+    /// Opens the Coordinator in the panel, optionally on a session or a pair, ready to type into.
+    func openCoordinator(session: String? = nil, pair: String? = nil) {
+        open(.coordinator)
+        if let session { coordinator.select(session: session) }
+        if let pair { coordinator.select(pair: pair) }
+        actions.showPanel()
+        actions.focusPanel()
     }
 
     func openDashboard() { open(.dashboard) }
@@ -295,6 +310,7 @@ final class AppModel {
         }
         self.tailer = tailer
         tailer.start()
+        broker.attachIfRunning()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -355,17 +371,18 @@ final class AppModel {
 
     /// Liveness from the process table, Codex state from rollout logs, and Claude desktop sessions.
     func scan() {
-        let procs = ProcessScanner.agentProcesses()
+        let table = ProcTools.allProcesses()
+        let procs = ProcessScanner.agentProcesses(table: table)
         var events = ProcessScanner.reconcile(store: store, processes: procs, now: now)
         if store.sessions.values.contains(where: { $0.state == .needsInput }) {
-            events += ProcessScanner.approvals(store: store, table: ProcTools.allProcesses(), now: now)
+            events += ProcessScanner.approvals(store: store, table: table, now: now)
         }
         let codexAlive = procs.contains { $0.agent == .codex }
         let openRollouts = Self.openRollouts(procs.filter { $0.agent == .codex })
         events += RolloutScanner.reconcile(store: store, rollouts: rollouts.recent(now: now),
                                            codexAlive: codexAlive, openRollouts: openRollouts, now: now)
         if settings.watchClaudeDesktop {
-            let running = ProcTools.isAppRunning(executableName: "Claude", bundleName: "Claude.app")
+            let running = ProcTools.isAppRunning(executableName: "Claude", bundleName: "Claude.app", table: table)
             events += ClaudeDesktopScanner.reconcile(store: store, sessions: running ? desktop.recent(now: now) : [],
                                                      appRunning: running, now: now)
         }
@@ -459,7 +476,8 @@ final class AppModel {
         }
     }
 
-    private var sorted: [Session] {
+    /// Every live session the Sources settings show, most urgent first (the panel and the Coordinator share it).
+    var sorted: [Session] {
         store.sorted(now: now, staleAfter: settings.staleAfter) { [lastOutput] in lastOutput[$0.id] }
             .filter { isShown($0) && !$0.neverActive }
     }
@@ -691,7 +709,14 @@ final class AppModel {
 
     // MARK: Just finished
 
-    func jump(_ s: Session) { Focuser.focus(s) }
+    /// Brings a session's window forward; sessions the Coordinator runs open in the Coordinator.
+    func jump(_ s: Session) {
+        if s.hostKind == "coordinator" || broker.managed(storeID: s.id) != nil {
+            actions.openCoordinatorSession(s.id)
+        } else {
+            Focuser.focus(s)
+        }
+    }
 
     /// The card's ×: straight to Idle.
     func clearFinished(_ id: String) {

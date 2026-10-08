@@ -195,11 +195,14 @@ Agent HUD's hooks were in it.
   filter, ↑↓, Return or ⌘1–9 to jump, Esc to close. Typing a project name also offers **Start** (a new
   Claude session there, in VS Code or your terminal) and **Resume** (earlier conversations by title). **⌃⌥A** shows or hides the panel, and **⌥2** collapses it to the pill and back. Change any of them
   under gear → General → Shortcuts (click, then press the new combination), or turn them off.
-- **Everything happens in the panel.** **Menu** in the header has Find, Today's Time, Dashboard and
-  Settings; they open inside the panel, which grows to fit; nothing opens a separate window.
+- **Everything happens in the panel.** **Menu** in the header has Find, Coordinator, Today's Time, Dashboard and
+  Settings; they open inside the panel, which grows to fit and goes back to its size and place when you're done.
   **Today's Time** (also the footer) shows where today's agent time went, by project, in hours and
   decimal hours, with Copy as text for a timesheet. CSV export saves straight to
   Downloads.
+- **Coordinator** (the **Coordinator** button in the header, Menu → Coordinator, the menu bar menu, or **⌃⌥C**;
+  the button shows how many prompts wait on you there): work with agents directly, in the panel;
+  see [Coordinator](#coordinator).
 - **Group sessions by project** (gear → General): one row per project instead of one per session,
   so three VS Code sessions in one repo are one row. The row shows the project's most urgent
   session (needs you, then working, then idle) and a colored circle per session. Projects start
@@ -253,6 +256,55 @@ a Markdown file when it wasn't linked in the conversation. Drafts stay local; co
 questions answered or change the plan. See [Quick Answers](docs/QUICK_ANSWERS.md) for supported sources,
 detection limits, and the feasibility of future direct replies.
 
+## Coordinator
+
+**Menu → Coordinator** (or **⌃⌥C**, or click a Coordinator session) turns the panel into the Coordinator, grown to
+fit (‹ or ⌃⌥C again goes back): pairs and projects on the left (each project a folder of its sessions; one with a
+session waiting on you opens by itself), the selected conversation in the middle, and every running agent on the
+right. Select text and ⌘C, or right-click a message → Copy; ⋯ → Copy Conversation copies the whole thread.
+
+- A prompt the selected session is waiting on stays pinned above the composer: **⌘Y** allows, **⌥⌘Y** allows for
+  the session, **⌘N** denies. **⇧⌘A** (the tray button) opens Approvals: everything waiting on you across sessions
+  and pairs, oldest first, with the conversation leading up to each; **J / K** move between them.
+- **⌘N** new session, **⇧⌘N** new pair, **⌘.** stops the running turn, **@** in the composer mentions a file.
+
+- **Open in VS Code** lists workspace folders reported by the companion extension, including projects with no agents yet. Select a project and choose **Assign Work**. `make vscode-install` packages and installs the extension; existing windows may need **Developer: Reload Window** once. The **Agent HUD Tasks** Explorer view also lets you assign work and review results without leaving VS Code.
+- **Assign Work** starts Claude or Codex in a project (or any folder) under the Coordinator. You chat with it
+  there: Return sends; while it works, Codex takes your message into the running turn and Claude runs it next;
+  **Stop Turn** interrupts. Permission prompts and questions appear inline with Allow, Allow for This Session
+  and Deny. Claude sessions have a permission-mode menu.
+- These sessions belong to a small helper, `agenthud-broker`, not to the window: they keep running when you
+  close the window, quit Agent HUD or it updates, and reappear when it comes back. Stopped ones can be resumed.
+  The helper exits after ten idle minutes.
+- **Claude in VS Code, Cursor or Windsurf**: Send opens that exact conversation in the editor with your reply
+  typed in (through the Claude Code extension's `…/open?session=&prompt=` link), and puts it on the clipboard too.
+  When the conversation is already open in a tab, the extension won't fill it in ("Session is already open"):
+  with Accessibility allowed, Agent HUD pastes it into Claude's input itself, but only into an empty field inside
+  the Claude panel, never a code editor; otherwise press ⌘V there. Tick **Press Return for me** and it sends too,
+  pressing Return only in that editor while it's in front. A reply shows as Delivered once Claude's transcript has it.
+- **Existing Codex chats in VS Code**: Send delivers to the live process that owns that exact chat. Idle chats
+  start a follow-up; replies during a run steer that turn. The composer says **This Codex chat**. Delivery is
+  acknowledged by Codex and confirmed from the same transcript. Your draft stays saved on failure. An uncertain
+  reply is never sent again automatically; check the conversation before retrying. This uses Codex's versioned
+  local owner/follower protocol; an incompatible update shows an error and preserves the draft.
+- **Other sessions started elsewhere** (a terminal or unsupported desktop/editor integrations) are read here: the
+  conversation, the prompt it's waiting on, and a report when a turn finishes. **Copy & Open** copies your reply
+  and brings their window forward. While one is idle, **Continue a Copy Here** forks the conversation and leaves
+  the original alone. Workspace discovery alone does not grant control; Codex replies require a live thread owner.
+- **New Pair** puts Claude and Codex on one goal: one plans and builds, the other reviews the plan and each diff,
+  until the reviewer approves. By default the pair works in a new git worktree on `pair/<goal>`, stops for you to
+  approve the plan, runs your test command after each build, and stops after 3 review rounds or two failing test
+  runs. The reviewer's turns are read-only; unexpected changes are preserved and the pair pauses for inspection.
+  Running a pair directly in your checkout requires it to be clean. Agent HUD commits each build; nothing
+  is merged or pushed until you choose **Merge into your checkout**. Swap roles to let Codex build.
+
+Session rows distinguish **Running**, **Idle**, **Waiting on you**, **Completed**, **Disconnected**, **Failed** and
+**Stopped** using broker events and connection evidence. Lost connections show recovery actions. Drafts are saved;
+uncertain messages are retained for review and are never replayed automatically after a broker restart.
+
+Current architecture, setup, integration limits and live verification: [docs/COORDINATOR.md](docs/COORDINATOR.md).
+The earlier implementation notes are in [docs/Coordinator-Plan.md](docs/Coordinator-Plan.md).
+
 ## Testing without agents
 
 ```sh
@@ -261,6 +313,8 @@ make fake-loop     # repeat forever; Ctrl-C ends the fake sessions
 make fake-clear    # end all fake sessions now
 AgentHUD.app/Contents/MacOS/Agent HUD --snapshot /tmp/snap   # render the panel, detail, dashboard to PNGs
 AgentHUD.app/Contents/MacOS/Agent HUD --history 7             # print the last 7 days of history
+AgentHUD.app/Contents/MacOS/Agent HUD --chat <transcript.jsonl>  # print what the Coordinator's chat shows
+AgentHUD.app/Contents/MacOS/Agent HUD --snapshot-coordinator /tmp/c.png [project|pair]  # render the Coordinator
 ```
 
 `fake-events.sh` pipes fake hook payloads through the real reporter. Feed one event by hand with:
@@ -300,6 +354,7 @@ Makefile
 Resources/Info.plist                 LSUIElement, AppleEvents usage string
 Sources/AgentHUDCore/              event model, state machine, activity log, tailer, scanners, installer
 Sources/agenthud-report/main.swift the hook reporter (+ install/uninstall subcommands)
+Sources/agenthud-broker/main.swift the helper that owns Coordinator sessions and pairs
 Sources/AgentHUD/                  SwiftUI/AppKit app: panel, detail, search, dashboard, menu bar,
                                      settings, notifications, hotkeys, chat watcher
 Tests/AgentHUDCoreTests/           state machine, tailer, scanners, installer
