@@ -21,8 +21,11 @@ final class Updater {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     }
 
+    /// Local previews must not replace themselves with the published Homebrew build during testing.
+    static var isLocalPreview: Bool { Bundle.main.object(forInfoDictionaryKey: "AgentHUDLocalPreview") as? Bool == true }
+
     /// Installed with Homebrew (and brew is still there to upgrade it).
-    var viaHomebrew: Bool { UpdateCheck.brewCaskroom() != nil && UpdateCheck.brewBinary != nil }
+    var viaHomebrew: Bool { !Self.isLocalPreview && UpdateCheck.brewCaskroom() != nil && UpdateCheck.brewBinary != nil }
 
     var available: UpdateCheck.Release? {
         if case .available(let r) = status { return r }

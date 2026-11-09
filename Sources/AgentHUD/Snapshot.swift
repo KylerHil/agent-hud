@@ -6,6 +6,56 @@ import SwiftUI
 /// for checking the UI without screen-recording permission.
 @MainActor
 enum Snapshot {
+    static func ports(dir: String) {
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let model = AppModel(settings: AppSettings())
+        model.homeTab = .ports
+        var waiting = AgentEvent(agent: .claude, event: "PermissionRequest", sessionId: "ports-snapshot-approval")
+        waiting.cwd = "/Users/developer/Development/loadtraxx-mobile"
+        waiting.toolName = "Bash"; waiting.toolUseId = "ports-snapshot-tool"; waiting.origin = "fake"
+        model.ingest([waiting], replay: true)
+        let owner = PortProcessIdentity(pid: 8421, started: Date(), executable: "/opt/homebrew/bin/node", userID: getuid())
+        let project = PortProject(name: "loadtraxx-mobile", path: "/Users/developer/Development/loadtraxx-mobile", evidence: "Git project folder")
+        let rows: [PortEndpoint] = [
+            .init(bindings: [.init(address: "127.0.0.1", port: 3003)], owners: [owner], project: project),
+            .init(bindings: [.init(address: "::1", port: 5173)],
+                  owners: [.init(pid: 12084, started: Date(), executable: "/opt/homebrew/bin/node", userID: getuid())],
+                  project: .init(name: "agent-watch / docs", path: "/Users/developer/Development/agent-watch", evidence: "Git project folder")),
+            .init(bindings: [.init(address: "127.0.0.1", port: 5433)],
+                  project: .init(name: "loadtraxx", path: nil, evidence: "Docker Compose project"),
+                  container: .init(id: String(repeating: "a", count: 64), name: "loadtraxx-db-1", image: "postgres:16", context: "desktop-linux", service: "postgres", internalPort: 5432)),
+            .init(bindings: [.init(address: "0.0.0.0", port: 6379), .init(address: "::", port: 6379)],
+                  project: .init(name: "loadtraxx", path: nil, evidence: "Docker Compose project"),
+                  container: .init(id: String(repeating: "b", count: 64), name: "loadtraxx-redis-1", image: "redis:7", context: "desktop-linux", service: "redis", internalPort: 6379)),
+            .init(bindings: [.init(address: "0.0.0.0", port: 7000)],
+                  owners: [.init(pid: 713, started: Date(), executable: "/System/Library/CoreServices/ControlCenter.app/Contents/MacOS/ControlCenter", userID: getuid())]),
+            .init(bindings: [.init(address: "127.0.0.1", port: 11979)],
+                  owners: [.init(pid: 12345, started: Date(), executable: "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)", userID: getuid())],
+                  project: .init(name: "loadtraxx-mobile", path: project.path, evidence: "Claude IDE workspace"),
+                  editor: .init(appName: "VS Code", role: .claudeBridge, workspaceFolders: [project.path!])),
+            .init(bindings: [.init(address: "127.0.0.1", port: 50021)],
+                  owners: [.init(pid: 12346, started: Date(), executable: "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)", userID: getuid())],
+                  editor: .init(appName: "VS Code", role: .extensionHost)),
+        ]
+        model.ports.loadSnapshot(.init(endpoints: rows, docker: .connected("desktop-linux")))
+        for width in [260.0, 340.0, 420.0] {
+            for scheme in [ColorScheme.light, .dark] {
+                let size = NSSize(width: width + 24, height: 634)
+                renderNative(ExpandedView(model: model, forSnapshot: true).frame(width: width, height: 610).padding(12)
+                    .background(scheme == .dark ? Color(white: 0.12) : Color(white: 0.94))
+                    .environment(\.colorScheme, scheme), scheme: scheme, to: "\(dir)/ports-\(Int(width))-\(scheme).png", size: size)
+            }
+        }
+        model.ports.source = .editor
+        for width in [260.0, 340.0] {
+            for scheme in [ColorScheme.light, .dark] {
+                renderNative(ExpandedView(model: model, forSnapshot: true).frame(width: width, height: 610).padding(12)
+                    .background(scheme == .dark ? Color(white: 0.12) : Color(white: 0.94))
+                    .environment(\.colorScheme, scheme), scheme: scheme,
+                    to: "\(dir)/editor-internals-\(Int(width))-\(scheme).png", size: NSSize(width: width + 24, height: 634))
+            }
+        }
+    }
     static func quickAnswers(dir: String) {
         let model = AppModel(settings: AppSettings())
         let sample = """
@@ -173,9 +223,9 @@ enum Snapshot {
     }
 
     /// AppKit-backed controls (TextField, Picker, Menu) need a hosting view, not ImageRenderer.
-    private static func renderNative(_ view: some View, scheme: ColorScheme, to path: String) {
+    private static func renderNative(_ view: some View, scheme: ColorScheme, to path: String,
+                                     size: NSSize = NSSize(width: 760, height: 680)) {
         _ = NSApplication.shared
-        let size = NSSize(width: 760, height: 680)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)

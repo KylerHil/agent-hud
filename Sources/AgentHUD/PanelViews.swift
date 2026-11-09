@@ -142,7 +142,22 @@ struct PanelRootView: View {
     let model: AppModel
     var controller: PanelController? = nil
 
+    @ViewBuilder
     var body: some View {
+        // Do not disable the root gesture with GestureMask.none/subviews. Gesture masks also
+        // affect descendant controls; omit the gesture entirely in the interactive panes.
+        if model.mode == .coordinator || (model.mode == .list && model.homeTab == .ports && !model.settings.collapsed) {
+            surface
+        } else {
+            surface.simultaneousGesture(
+                DragGesture(minimumDistance: 3)
+                    .onChanged { _ in controller?.dragChanged() }
+                    .onEnded { _ in controller?.dragEnded() }
+            )
+        }
+    }
+
+    private var surface: some View {
         Group {
             if model.settings.collapsed {
                 PillView(model: model, controller: controller)
@@ -153,14 +168,6 @@ struct PanelRootView: View {
         .padding(8) // room for the attention glow
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onHover { controller?.applyOpacity(hovering: $0) }
-        // The compact list can move from any row. In the Coordinator, only its pane headers
-        // move the window: text selection, scrollbars and composer controls keep their drags.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 3)
-                .onChanged { _ in controller?.dragChanged() }
-                .onEnded { _ in controller?.dragEnded() },
-            including: model.mode == .coordinator ? .subviews : .all
-        )
     }
 }
 
@@ -277,19 +284,23 @@ struct ExpandedView: View {
                 SessionDetailView(model: model, session: s, forSnapshot: forSnapshot)
             } else {
                 header
-                if model.searching { SearchField(model: model) }
-                if model.legacyHooks && !model.searching { legacyBanner }
-                if let r = model.updater.available, !model.searching { updateBanner(r) }
-                if let first = model.suggestions.first, !model.searching, !model.suggestionBannerHidden {
-                    suggestionBanner(first, more: model.suggestions.count - 1)
-                }
-                if forSnapshot {
-                    list
-                    Spacer(minLength: 0)
+                if model.homeTab == .ports {
+                    PortsView(app: model, ports: model.ports, forSnapshot: forSnapshot)
                 } else {
-                    ScrollView(.vertical) { list }.scrollIndicators(.automatic)
+                    if model.searching { SearchField(model: model) }
+                    if model.legacyHooks && !model.searching { legacyBanner }
+                    if let r = model.updater.available, !model.searching { updateBanner(r) }
+                    if let first = model.suggestions.first, !model.searching, !model.suggestionBannerHidden {
+                        suggestionBanner(first, more: model.suggestions.count - 1)
+                    }
+                    if forSnapshot {
+                        list
+                        Spacer(minLength: 0)
+                    } else {
+                        ScrollView(.vertical) { list }.scrollIndicators(.automatic)
+                    }
+                    footer
                 }
-                footer
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -299,15 +310,33 @@ struct ExpandedView: View {
         }
         .clipShape(shape)
         .attentionGlow(attention, pulse: model.settings.pulse, shape: shape)
+        .task(id: model.portsVisible) {
+            guard model.portsVisible, !forSnapshot else { return }
+            model.ports.projects = model.portProjects
+            await model.ports.watch()
+        }
     }
 
     /// Narrow panels drop the title first, then shrink the Simple / Detailed switch to one button,
     /// so the header never forces the panel wider than it is.
-    private var header: some View {
+    @ViewBuilder private var header: some View {
+        if model.homeTab == .ports {
+            headerContent.simultaneousGesture(
+                DragGesture(minimumDistance: 3)
+                    .onChanged { _ in controller?.dragChanged() }
+                    .onEnded { _ in controller?.dragEnded() }
+            )
+        } else {
+            headerContent
+        }
+    }
+
+    private var headerContent: some View {
         ViewThatFits(in: .horizontal) {
             headerRow(title: true, compactToggle: false)
             headerRow(title: false, compactToggle: false)
             headerRow(title: false, compactToggle: true)
+            headerRow(title: false, compactToggle: true, compactChrome: true)
         }
         .padding(.leading, 12)
         .padding(.trailing, 6)
@@ -316,21 +345,31 @@ struct ExpandedView: View {
         .contentShape(Rectangle())
     }
 
-    private func headerRow(title: Bool, compactToggle: Bool) -> some View {
+    private func headerRow(title: Bool, compactToggle: Bool, compactChrome: Bool = false) -> some View {
         HStack(spacing: 6) {
-            EyeToggle(model: model)
+            if !compactChrome {
+                if model.homeTab == .sessions { EyeToggle(model: model) }
+                else { Image(systemName: "eye").foregroundStyle(.secondary).frame(width: 20).help("Agent HUD") }
+            }
             if title { Text("Agent HUD").font(.system(size: 12, weight: .semibold)).lineLimit(1).fixedSize() }
+            HomeTabs(model: model)
             Spacer(minLength: 6)
-            CoordinatorButton(model: model, compact: compactToggle)
-            DensityToggle(settings: model.settings, compact: compactToggle)
-            if model.quickAnswers.count > 0 {
+            if model.homeTab == .sessions {
+                DensityToggle(settings: model.settings, compact: compactToggle)
+            } else {
+                IconButton(symbol: "arrow.clockwise", help: "Refresh ports") { Task { await model.ports.refresh() } }
+                    .disabled(model.ports.refreshing)
+            }
+            if model.homeTab == .sessions && model.quickAnswers.count > 0 && !compactChrome {
                 Button { model.openQuestions() } label: {
                     Label("\(model.quickAnswers.count)", systemImage: "text.bubble")
                         .font(.system(size: 10.5))
                 }.buttonStyle(.bordered).controlSize(.small).help("Detected questions · Quick answers")
             }
-            PanelMenu(model: model)
-            IconButton(symbol: "chevron.up", help: "Collapse to pill") { model.settings.collapsed = true }
+            PanelMenu(model: model, compact: compactChrome)
+            if !compactChrome {
+                IconButton(symbol: "chevron.up", help: "Collapse to pill") { model.settings.collapsed = true }
+            }
         }
     }
 
@@ -1339,37 +1378,32 @@ struct PaletteActionRow: View {
     }
 }
 
-// MARK: - Coordinator
+// MARK: - Home tabs
 
-/// Opens the Coordinator in the panel, one click from the list; counts what's waiting on you there.
-struct CoordinatorButton: View {
+struct HomeTabs: View {
     let model: AppModel
-    var compact = false
-
     var body: some View {
-        let waiting = model.coordinator.approvals.count
-        Button { model.openCoordinator() } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "bubble.left.and.bubble.right")
-                    .font(.system(size: compact ? 11 : 9.5, weight: .semibold))
-                if !compact { Text("Coordinator").font(.system(size: 10, weight: .semibold)) }
-                if waiting > 0 {
-                    Text("\(waiting)").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                        .padding(.horizontal, 4).frame(minWidth: 14, minHeight: 13)
-                        .background(Capsule().fill(Color.orange))
-                }
-            }
-            .padding(.horizontal, compact ? 5 : 7)
-            .padding(.vertical, compact ? 3 : 4)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .contentShape(Rectangle())
+        HStack(spacing: 1) {
+            tab("Sessions", .sessions)
+            tab("Ports", .ports)
+        }
+        .padding(2)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+        .fixedSize()
+    }
+    private func tab(_ title: String, _ selection: HomeTab) -> some View {
+        Button {
+            model.endSearch(); model.detailID = nil; model.homeTab = selection
+        } label: {
+            Text(title).font(.system(size: 10.5, weight: .semibold))
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(model.homeTab == selection ? Color.primary.opacity(0.13) : .clear,
+                            in: RoundedRectangle(cornerRadius: 4))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-        .fixedSize()
-        .help("Open the Coordinator (\(model.settings.coordinatorShortcut.display))"
-              + (waiting > 0 ? " · \(waiting) waiting on you" : ""))
-        .accessibilityLabel("Open the Coordinator")
+        .foregroundStyle(model.homeTab == selection ? .primary : .secondary)
+        .accessibilityLabel("\(title) tab")
+        .accessibilityAddTraits(model.homeTab == selection ? .isSelected : [])
     }
 }
 
@@ -1533,6 +1567,7 @@ struct FinishedCard: View {
 /// Find, Today's time, Dashboard and Settings, behind one button in the header.
 struct PanelMenu: View {
     let model: AppModel
+    var compact = false
 
     var body: some View {
         Menu {
@@ -1542,7 +1577,7 @@ struct PanelMenu: View {
                 Label("Find a Session  \(model.settings.findShortcut.display)", systemImage: "magnifyingglass")
             }
             Button { model.actions.openCoordinator() } label: {
-                Label("Coordinator  \(model.settings.coordinatorShortcut.display)", systemImage: "bubble.left.and.bubble.right")
+                Label("Coordinator\(model.coordinator.approvals.isEmpty ? "" : " · \(model.coordinator.approvals.count) waiting")  \(model.settings.coordinatorShortcut.display)", systemImage: "bubble.left.and.bubble.right")
             }
             Button { model.open(.today) } label: { Label("Today's Time", systemImage: "clock") }
             Button { model.actions.openDashboard() } label: { Label("Dashboard", systemImage: "chart.bar.xaxis") }
@@ -1557,17 +1592,28 @@ struct PanelMenu: View {
             }
             Divider()
             Button { model.openSettings() } label: { Label("Settings…", systemImage: "gearshape") }
+            Button { model.settings.collapsed = true } label: { Label("Collapse to Pill", systemImage: "chevron.up") }
         } label: {
-            // A real (bordered) button, so it reads as something to click.
-            Text("Menu")
+            if compact { Image(systemName: "ellipsis") } else { Text("Menu") }
         }
         .menuStyle(.button)
         .buttonStyle(.bordered)
         .controlSize(.small)
-        .menuIndicator(.visible)
+        .menuIndicator(compact ? .hidden : .visible)
         .fixedSize()
+        // A native macOS Menu can flatten a composite label. Draw its badge outside that label
+        // so pending approvals stay visible even with the compact ellipsis presentation.
+        .overlay(alignment: .topTrailing) {
+            if !model.coordinator.approvals.isEmpty {
+                Text(model.coordinator.approvals.count > 99 ? "99+" : "\(model.coordinator.approvals.count)")
+                    .font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                    .padding(.horizontal, 4).frame(minHeight: 14)
+                    .background(.orange, in: Capsule()).offset(x: 4, y: -4).allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
         .help("Find, Coordinator, today's time, dashboard and settings")
-        .accessibilityLabel("Menu")
+        .accessibilityLabel(model.coordinator.approvals.isEmpty ? "Menu" : "Menu, \(model.coordinator.approvals.count) Coordinator approvals waiting")
     }
 }
 

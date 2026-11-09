@@ -14,6 +14,8 @@ enum SettingsTab: Hashable {
     case general, sources, notifications, permissions, hooks
 }
 
+enum HomeTab { case sessions, ports }
+
 /// One line in the ⌃⌥Space palette: a live session to jump to, a project to start a session in, or an
 /// earlier conversation to resume.
 enum PaletteItem: Identifiable {
@@ -37,6 +39,7 @@ final class AppModel {
     let store = SessionStore()
     let activity = ActivityLog()
     let quickAnswers = QuickAnswersModel()
+    let ports = PortsModel()
     /// Sessions and pairs the Coordinator started, owned by agenthud-broker.
     let broker = BrokerClient()
     let settings: AppSettings
@@ -49,6 +52,19 @@ final class AppModel {
     private(set) var finishedAt: [String: Date] = AppModel.loadDates("justFinished")
     static let cardLifetime: TimeInterval = 120
     var mode: PanelMode = .list
+    var homeTab: HomeTab = .sessions
+    var portsVisible: Bool {
+        mode == .list && homeTab == .ports && detailID == nil && settings.panelVisible && !settings.collapsed
+    }
+    var portProjects: [PortProject] {
+        var projects: [String: PortProject] = [:]
+        for session in store.sessions.values {
+            if let root = session.root, root != "/", root != Paths.userHome.path {
+                projects[root] = PortProject(name: session.projectName, path: root, evidence: "Agent project folder")
+            }
+        }
+        return Array(projects.values)
+    }
     var settingsTab: SettingsTab = .general
     /// Search over the list (⌃⌥Space or the magnifying glass): typing filters, ↑↓ selects, Return jumps.
     var searching = false
@@ -133,12 +149,14 @@ final class AppModel {
         searching = false
         settings.collapsed = false
         mode = m
+        if m != .list { homeTab = .sessions }
     }
 
     /// Opens the panel on a session's detail view (from a notification's Show Details).
     func showDetail(_ s: Session) {
         searching = false
         mode = .list
+        homeTab = .sessions
         settings.collapsed = false
         detailID = s.id
         actions.showPanel()
@@ -147,6 +165,7 @@ final class AppModel {
     func beginSearch() {
         detailID = nil
         mode = .list
+        homeTab = .sessions
         settings.collapsed = false
         query = ""
         searchSelection = 0

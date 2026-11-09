@@ -329,6 +329,10 @@ struct UpdatesSection: View {
                 }
             }
         }
+        if Updater.isLocalPreview {
+            Text("Local preview · automatic replacement is disabled while you test this build.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
         Toggle("Check for updates daily", isOn: $settings.checkForUpdates)
         Toggle("Install updates automatically", isOn: $settings.installUpdatesAutomatically)
             .disabled(!settings.checkForUpdates || !updater.viaHomebrew)

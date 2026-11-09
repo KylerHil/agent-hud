@@ -3,6 +3,18 @@ import AppKit
 import SwiftUI
 
 MainActor.assumeIsolated {
+    // Read-only diagnostics and deterministic UI captures do not migrate user data or launch the app.
+    if CommandLine.arguments.contains("--ports") {
+        let snapshot = PortScanner.scan(includeUDP: CommandLine.arguments.contains("--udp"))
+        for row in snapshot.endpoints.sorted(by: { $0.port < $1.port }) {
+            print("\(row.transport.rawValue.uppercased())\t\(row.bindings.map(\.display).joined(separator: ", "))\t\(row.title)\t\(row.subtitle)")
+        }
+        print("Docker: \(snapshot.docker)")
+        exit(0)
+    }
+    if let i = CommandLine.arguments.firstIndex(of: "--snapshot-ports"), i + 1 < CommandLine.arguments.count {
+        Snapshot.ports(dir: CommandLine.arguments[i + 1]); exit(0)
+    }
     // First, before anything reads or creates ~/.agenthud.
     Migration.run()
     // Exercise the same watched-chat Send path without requiring editor focus or a visible panel.

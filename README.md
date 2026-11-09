@@ -123,6 +123,7 @@ Needs Xcode 16 or later (or its Command Line Tools).
 make app        # build/AgentHUD.app (ad-hoc signed)
 make run        # build and launch from build/
 make install    # copy to ~/Applications/AgentHUD.app + ~/.agenthud/bin/agenthud-report, launch
+make install-preview # local test build; automatic Homebrew replacement stays disabled
 make test       # unit tests
 make release VERSION=1.2.0   # publish a release to GitHub and the Homebrew tap (docs/RELEASING.md)
 make icon       # regenerate Resources/AppIcon.icns from scripts/make-icon.swift
@@ -164,7 +165,33 @@ Agent HUD's hooks were in it.
 
 ## Using it
 
-- **Drag** the panel from anywhere; **resize** from its edges or the corner grip. Size and
+- **Sessions / Ports** in the panel header switches between agent sessions and local services.
+  Coordinator lives in **Menu**, which shows its waiting approval count. Ports lists TCP listeners by
+  host port, process and project folder, plus published ports from the selected local Docker context.
+  Search by project, process, PID, address or port; filter Local, Docker or Other. The count menu can
+  include bound UDP sockets. Discovery refreshes while the Ports tab is visible and pauses when hidden.
+- **Editor internals** keeps VS Code-family helper ports out of All, Local and Other by default.
+  Select that filter to inspect them. Claude IDE bridges show their workspace names and
+  **Claude IDE bridge · VS Code** labels after validating the live process ancestry and IDE records.
+  Other ports owned by the same extension host can share its workspace label. Multi-root windows
+  list their workspace folders in the expanded details. Stopping an editor helper can disconnect
+  extensions and agent integrations in that editor window.
+- **Expand a port** for its bindings, owning PIDs or container, project folder and copy-address action.
+  The browser button explicitly opens HTTP on conventional web-development ports; right-click any
+  TCP row to choose HTTP or HTTPS. An open port does not establish application health. Project names
+  come from project folders, agent workspaces or Compose labels; unidentified services remain visible.
+- **Stop** reviews the exact process or container and all its affected ports before acting. Local
+  processes get a normal termination request; a process that stays alive offers a separately confirmed
+  **Force quit**. Docker uses **Stop Container**, affecting all ports published by that container.
+  Process identity and ownership are rechecked before acting. macOS-managed processes, other users'
+  processes and Agent HUD itself cannot be stopped here. This feature does not request administrator
+  privileges. A supervisor can restart a stopped process; Ports shows the new listener when it returns.
+- Docker is optional. Its CLI is discovered in the usual Docker Desktop/Homebrew locations; only local
+  Unix-socket contexts are queried. Missing Docker, connection failures and remote contexts leave native
+  port discovery available. Process inspection follows the current user's permissions, so the list can
+  be incomplete. Unpublished container-only ports are not host listeners and are omitted.
+
+- **Drag** the panel from its header (or the Sessions list); **resize** from its edges or the corner grip. Size and
   position are remembered. The list scrolls.
 - **Click** a row to bring its window forward: the exact tmux pane (it switches the attached
   client to that session and window, then brings that terminal forward), the exact Terminal, iTerm2 or

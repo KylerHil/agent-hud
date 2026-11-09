@@ -6,7 +6,7 @@ APP := build/AgentHUD.app
 APP_DEST := $(HOME)/Applications/AgentHUD.app
 LEGACY_APP := $(HOME)/Applications/AgentWatch.app
 
-.PHONY: help icon build test fake fake-loop fake-clear hooks-diff install-hooks uninstall-hooks hooks-status app run install install-reporter clean release release-dry-run
+.PHONY: help icon build test fake fake-loop fake-clear hooks-diff install-hooks uninstall-hooks hooks-status app run install install-preview install-reporter clean release release-dry-run
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -44,6 +44,17 @@ install: app install-reporter ## Install to ~/Applications (plus the reporter); 
 	rm -rf $(APP_DEST) && cp -R $(APP) $(APP_DEST)
 	open $(APP_DEST)
 	@echo "installed $(APP_DEST)"
+
+install-preview: app install-reporter ## Install a local preview to ~/Applications, without automatic Homebrew replacement
+	/usr/libexec/PlistBuddy -c 'Add :AgentHUDLocalPreview bool true' $(APP)/Contents/Info.plist
+	codesign --force --sign - --timestamp=none $(APP)
+	@pkill -x AgentHUD 2>/dev/null || true
+	@sleep 0.3
+	@mkdir -p "$(HOME)/Applications" "$(HOME)/.agenthud/backups/apps"
+	@if [ -d "$(APP_DEST)" ]; then mv "$(APP_DEST)" "$(HOME)/.agenthud/backups/apps/AgentHUD-$$(date +%Y%m%d-%H%M%S).app"; fi
+	cp -R $(APP) "$(APP_DEST)"
+	open "$(APP_DEST)"
+	@echo "installed local preview $(APP_DEST)"
 
 fake-clear: build ## End every fake session
 	scripts/fake-events.sh --clear
