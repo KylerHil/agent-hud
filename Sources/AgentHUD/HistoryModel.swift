@@ -60,7 +60,7 @@ final class HistoryModel {
         let start = range.start(now: Date()), gap = settings.idleGapMinutes * 60
         let existing = index
         queue.async { [weak self] in
-            let index = existing ?? HistoryIndex()
+            let index = existing ?? HistoryIndex(minSaveInterval: 30 * 60)
             if reindex || existing == nil { index.refresh() }
             let now = Date()
             let report = index.report(from: start, to: now, idleGap: gap)
@@ -85,6 +85,12 @@ final class HistoryModel {
     func refreshIfOlder(than maxAge: TimeInterval) {
         if let updatedAt, Date().timeIntervalSince(updatedAt) < maxAge { return }
         refresh()
+    }
+
+    /// Writes index entries the save throttle held back; called on quit.
+    func flush() {
+        let index = self.index
+        queue.sync { index?.save() }
     }
 
     /// Synchronous, for `--snapshot`.

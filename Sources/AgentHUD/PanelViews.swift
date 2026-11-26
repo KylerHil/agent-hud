@@ -173,29 +173,111 @@ struct PanelRootView: View {
 
 // MARK: - Pulse
 
+private struct StaticGlowKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    /// Snapshots can't capture AppKit layers, so they draw the glow's resting state in SwiftUI.
+    var staticGlow: Bool {
+        get { self[StaticGlowKey.self] }
+        set { self[StaticGlowKey.self] = newValue }
+    }
+}
+
 private struct AttentionGlow: ViewModifier {
     let active: Bool
     let pulse: Bool
     let shape: AnyShape
-    @State private var phase = false
+    @Environment(\.staticGlow) private var staticGlow
 
     func body(content: Content) -> some View {
         content
             // Glow lives on the border stroke only; a shadow on the content would tint the translucent material.
-            .overlay(
-                shape.stroke(Color.orange.opacity(active ? (phase ? 1 : 0.45) : 0), lineWidth: 1.5)
-                    .shadow(color: .orange.opacity(active ? (phase ? 0.8 : 0.25) : 0), radius: active ? 6 : 0)
-                    .allowsHitTesting(false)
-            )
-            .onAppear { restart() }
-            .onChange(of: active) { restart() }
-            .onChange(of: pulse) { restart() }
+            .overlay {
+                if active && staticGlow {
+                    shape.stroke(Color.orange.opacity(0.45), lineWidth: 1.5)
+                        .shadow(color: .orange.opacity(0.25), radius: 6)
+                        .allowsHitTesting(false)
+                } else if active {
+                    GlowLayer(shape: shape, pulse: pulse).allowsHitTesting(false)
+                }
+            }
+    }
+}
+
+/// The attention glow as a Core Animation layer. A SwiftUI `repeatForever` animation re-renders the
+/// whole panel every frame for as long as something waits on you (measured ~12% CPU, all day); a
+/// CABasicAnimation runs in the window server and costs the app nothing per frame.
+private struct GlowLayer: NSViewRepresentable {
+    let shape: AnyShape
+    let pulse: Bool
+
+    func makeNSView(context: Context) -> GlowView { GlowView() }
+
+    func updateNSView(_ view: GlowView, context: Context) {
+        view.shape = shape
+        view.pulse = pulse
+    }
+}
+
+private final class GlowView: NSView {
+    private let stroke = CAShapeLayer()
+    var shape: AnyShape = AnyShape(Rectangle()) { didSet { needsLayout = true } }
+    var pulse = false { didSet { if pulse != oldValue { restart() } } }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        stroke.fillColor = nil
+        stroke.strokeColor = NSColor.systemOrange.cgColor
+        stroke.lineWidth = 1.5
+        stroke.shadowColor = NSColor.systemOrange.cgColor
+        stroke.shadowOffset = .zero
+        stroke.shadowRadius = 6
+        layer?.addSublayer(stroke)
+        restart()
     }
 
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        stroke.frame = bounds
+        stroke.path = shape.path(in: bounds).cgPath
+        CATransaction.commit()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Cache stroke + shadow as one bitmap so each pulse frame is only an opacity change.
+        stroke.rasterizationScale = window?.backingScaleFactor ?? 2
+        stroke.shouldRasterize = true
+        restart()
+    }
+
+    /// Same look as before: steady stroke 0.45 / shadow 0.25, or pulsing up to stroke 1 / shadow 0.8.
     private func restart() {
-        phase = false
-        guard active, pulse else { return }
-        withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { phase = true }
+        stroke.removeAnimation(forKey: "pulse")
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        stroke.opacity = 0.45
+        stroke.shadowOpacity = pulse ? 0.8 : 0.55
+        CATransaction.commit()
+        guard pulse, window != nil else { return }
+        let a = CABasicAnimation(keyPath: "opacity")
+        a.fromValue = 0.45
+        a.toValue = 1
+        a.duration = 0.9
+        a.autoreverses = true
+        a.repeatCount = .infinity
+        a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        a.isRemovedOnCompletion = false
+        stroke.add(a, forKey: "pulse")
     }
 }
 
@@ -1515,8 +1597,9 @@ struct FinishedCard: View {
                 ZStack(alignment: .leading) {
                     Capsule().fill(tint.opacity(0.2))
                     Capsule().fill(tint)
+                        // Steps once a second with the tick. A 1s linear animation restarted every second
+                        // kept SwiftUI rendering every frame for the card's whole two minutes.
                         .frame(width: geo.size.width * left / AppModel.cardLifetime)
-                        .animation(.linear(duration: 1), value: left)
                 }
             }
             .frame(height: 3)

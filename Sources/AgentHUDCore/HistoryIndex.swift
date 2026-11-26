@@ -93,12 +93,18 @@ public final class HistoryIndex: @unchecked Sendable {
     private let lock = NSLock()
     private var files: [String: Entry] = [:]
     private var dirty = false
+    /// The index file is tens of MB and rewritten whole, so a long-running app writes it at most this
+    /// often (plus `save()` on quit). It's only a cache: losing unsaved entries means re-reading those files.
+    private let minSaveInterval: TimeInterval
+    private var lastSave = Date.distantPast
 
     public init(claudeProjects: URL = Paths.claudeProjects, codexSessions: URL = Paths.codexSessions,
-                indexFile: URL = Paths.home.appendingPathComponent("history-index.json")) {
+                indexFile: URL = Paths.home.appendingPathComponent("history-index.json"),
+                minSaveInterval: TimeInterval = 0) {
         claudeRoot = claudeProjects
         codexRoot = codexSessions
         self.indexFile = indexFile
+        self.minSaveInterval = minSaveInterval
         if let data = try? Data(contentsOf: indexFile),
            let stored = try? JSONDecoder().decode(Stored.self, from: data), stored.v == Self.version {
             files = stored.files
@@ -123,7 +129,7 @@ public final class HistoryIndex: @unchecked Sendable {
         }
         if changed {
             dirty = true
-            save()
+            if Date().timeIntervalSince(lastSave) >= minSaveInterval { save() }
         }
         return changed
     }
@@ -133,7 +139,7 @@ public final class HistoryIndex: @unchecked Sendable {
         let snapshot = lock.withLock { Stored(v: Self.version, files: files) }
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         Paths.ensureDir(indexFile.deletingLastPathComponent())
-        if (try? data.write(to: indexFile, options: .atomic)) != nil { dirty = false }
+        if (try? data.write(to: indexFile, options: .atomic)) != nil { dirty = false; lastSave = Date() }
     }
 
     private func transcripts() -> [(URL, AgentKind)] {

@@ -229,7 +229,7 @@ enum Snapshot {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-        let hosting = NSHostingView(rootView: view)
+        let hosting = NSHostingView(rootView: view.environment(\.staticGlow, true))
         hosting.frame = NSRect(origin: .zero, size: size)
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
@@ -242,7 +242,7 @@ enum Snapshot {
     }
 
     private static func render(_ view: some View, to path: String) {
-        let r = ImageRenderer(content: view)
+        let r = ImageRenderer(content: view.environment(\.staticGlow, true))
         r.scale = 2
         guard let tiff = r.nsImage?.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
               let png = rep.representation(using: .png, properties: [:]) else { return }

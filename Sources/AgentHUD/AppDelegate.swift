@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         model.quickAnswers.save()
+        model.history.flush()
     }
 
     /// Find a session (default ⌃⌥Space) and show/hide the panel (default ⌃⌥A); both set in Settings.
